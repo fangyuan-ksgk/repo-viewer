@@ -1,0 +1,183 @@
+{
+    "node3": {
+        "name": "encode_sequence",
+        "type": "function",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 4
+    },
+    "node16": {
+        "name": "HDCNNClassifier",
+        "type": "class",
+        "file": "hdcnn.py",
+        "importance": 2,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node18"
+        ],
+        "opacity": 0.8,
+        "level": 2
+    },
+    "node8": {
+        "name": "HDComputing::random_hv",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node6": {
+        "name": "HDComputing",
+        "type": "class",
+        "file": "hdcnn.py",
+        "importance": 5,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node9",
+            "node11",
+            "node8",
+            "node10"
+        ],
+        "opacity": 1,
+        "level": 2
+    },
+    "node12": {
+        "name": "AGNewsDataset",
+        "type": "class",
+        "file": "hdcnn.py",
+        "importance": 4,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node3",
+            "node15",
+            "node14"
+        ],
+        "opacity": 0.9333333333333333,
+        "level": 2
+    },
+    "node18": {
+        "name": "HDCNNClassifier::forward",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node9": {
+        "name": "HDComputing::superpose",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node1": {
+        "name": "hdcnn.py",
+        "type": "file",
+        "file": "hdcnn.py",
+        "importance": 15,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node3",
+            "node16",
+            "node8",
+            "node6",
+            "node18",
+            "node12",
+            "node9",
+            "node10",
+            "node2",
+            "node15",
+            "node4",
+            "node11",
+            "node14",
+            "node5"
+        ],
+        "opacity": 1,
+        "level": 1
+    },
+    "node10": {
+        "name": "HDComputing::bind",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node2": {
+        "name": "create_token_hvs",
+        "type": "function",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node15": {
+        "name": "AGNewsDataset::__getitem__",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 2,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node3"
+        ],
+        "opacity": 0.8,
+        "level": 3
+    },
+    "node4": {
+        "name": "build_vocab",
+        "type": "function",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node11": {
+        "name": "HDComputing::permute",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node14": {
+        "name": "AGNewsDataset::__len__",
+        "type": "method",
+        "file": "hdcnn.py",
+        "importance": 1,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [],
+        "opacity": 0.7333333333333334,
+        "level": 3
+    },
+    "node5": {
+        "name": "main",
+        "type": "function",
+        "file": "hdcnn.py",
+        "importance": 3,
+        "file_path": "hdcnn/hdcnn.py",
+        "edges": [
+            "node2",
+            "node4"
+        ],
+        "opacity": 0.8666666666666667,
+        "level": 2
+    }
+}
