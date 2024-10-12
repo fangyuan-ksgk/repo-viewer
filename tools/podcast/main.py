@@ -25,21 +25,19 @@ from .constants import (
     ERROR_MESSAGE_NOT_SUPPORTED_IN_MELO_TTS,
     ERROR_MESSAGE_READING_PDF,
     ERROR_MESSAGE_TOO_LONG,
-    GRADIO_CACHE_DIR,
-    GRADIO_CLEAR_CACHE_OLDER_THAN,
     MELO_TTS_LANGUAGE_MAPPING,
     NOT_SUPPORTED_IN_MELO_TTS,
     SUNO_LANGUAGE_MAPPING,
 )
-from prompts import (
+from .prompts import (
     LANGUAGE_MODIFIER,
     LENGTH_MODIFIERS,
     QUESTION_MODIFIER,
     SYSTEM_PROMPT,
     TONE_MODIFIER,
 )
-from schema import ShortDialogue, MediumDialogue
-from utils import generate_podcast_audio, generate_script, parse_url
+from .schema import ShortDialogue
+from .utils import generate_podcast_audio, generate_script, parse_url
 
 
 def generate_podcast(
@@ -103,7 +101,7 @@ def generate_podcast(
     llm_output = generate_script(
         modified_system_prompt, 
         text, 
-        ShortDialogue if length == "Short (1-2 min)" else MediumDialogue
+        ShortDialogue
     )
 
     logger.info(f"Generated dialogue: {llm_output}")

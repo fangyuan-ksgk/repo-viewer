@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from scipy.io.wavfile import write as write_wav
 
 # Local imports
-from constants import (
+from .constants import (
     FIREWORKS_API_KEY,
     FIREWORKS_BASE_URL,
     FIREWORKS_MODEL_ID,
@@ -36,7 +36,7 @@ from constants import (
     JINA_RETRY_ATTEMPTS,
     JINA_RETRY_DELAY,
 )
-from schema import ShortDialogue, MediumDialogue
+from .schema import ShortDialogue
 
 # Initialize clients
 fw_client = OpenAI(base_url=FIREWORKS_BASE_URL, api_key=FIREWORKS_API_KEY)
@@ -49,8 +49,8 @@ preload_models()
 def generate_script(
     system_prompt: str,
     input_text: str,
-    output_model: Union[ShortDialogue, MediumDialogue],
-) -> Union[ShortDialogue, MediumDialogue]:
+    output_model: ShortDialogue,
+) -> ShortDialogue:
     """Get the dialogue from the LLM."""
 
     # Call the LLM
