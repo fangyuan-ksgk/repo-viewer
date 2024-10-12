@@ -32,57 +32,44 @@ def strategic_respond(json_file_path: str,
     
     return final_response
 
-
-class RepoAgent_MultiModal: 
+def dag_to_prompt(dag: dict, no_file_content: bool = False):
+    """
+    Convert a dependency graph (DAG) to a prompt for analysis, including file contents.
     
-    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None):
-        self.temp_repo = temp_repo
-        self.get_vlm_response = get_vlm_response
-        self.file_dag = directory_to_file_dag(temp_repo)
-        self.file_names = [self.file_dag[k]['name'] for k in self.file_dag]
-        module_dag = parse_directory_dag(temp_repo)
-        self.module_dag = module_dag
-        self._summarize_code()
-        self.module_names = [self.module_dag[k]['name'] for k in self.module_dag]
-        self.module_dag_path = save_dag_as_json(self.module_dag, temp_repo)
+    Args:
+    dag (dict): A dictionary representing the dependency graph.
+    no_file_content (bool): If True, skip including file contents in the prompt.
+    
+    Returns:
+    str: A prompt for analyzing the codebase structure and contents.
+    """
+    prompt = "Analyze the following codebase structure, dependencies, and file contents:\n\n"
+    
+    # Add information about nodes (files) and their contents
+    for node, data in dag.items():
+        if data['type'] == "file" and no_file_content:
+            continue
+        prompt += f"File: {data['name']}\n"
+        content_str = read_node_content(data)
+        prompt += f"Content:\n```\n{content_str}\n```\n\n"
         
-    def _summarize_code(self):
-        if not check_dag_exists(self.module_dag, self.temp_repo) and self.get_vlm_response:
-            self.module_dag = bottom_up_summarization(self.module_dag, self.get_vlm_response) # Get a nice VLM to speed-up the inference, in case claude dies ...
-            save_dag_as_json(self.module_dag, self.temp_repo)
-    
-    def visualize_file(self):
-        return visualize_dag(self.file_dag)
-    
-    def visualize_module(self, cap_node_number: int = 40):
-        self.module_dag = decide_opacity_of_dag(self.module_dag, cap_node_number=cap_node_number)
-        return visualize_dag(self.module_dag, cap_node_number = cap_node_number)
-    
-    def animate_module(self, cap_node_number: int = 40):
-        name = self.temp_repo.split("/")[-1]
-        output_file = create_gif_from_dag(self.module_dag, output_name = "anime_{name}", cap_node_number=cap_node_number)
-        print("GIF file saved in path: ", output_file)
-
-    def animate_file(self):
-        name = self.temp_repo.split("/")[-1]
-        output_file = create_gif_from_dag(self.file_dag, output_name = "anime_{name}")
-        print("GIF file saved in path: ", output_file)
+        if 'dependencies' in data:
+            prompt += "Dependencies:\n"
+            for dep in data['dependencies']:
+                prompt += f"  - {dag[dep]['name']}\n"
         
-    @property 
-    def module_graph(self):
-        png_module_graph_path = self.visualize_module()
-        return file_to_preprocessed_img(png_module_graph_path)
+        prompt += "\n" + "-"*50 + "\n\n"
     
-    @property 
-    def file_graph(self):
-        png_file_graph_path = self.visualize_file()
-        return file_to_preprocessed_img(png_file_graph_path)
-    
-    def _respond(self, question: str):
-        if not self.get_vlm_response:
-            raise ValueError("Get VLM response function not provided yet")
-        interpreter = CodeInterpreter()
-        return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
+    prompt += "Instructions for analysis:\n"
+    prompt += "1. Examine each file's content and its role in the project.\n"
+    prompt += "2. Analyze the dependencies between files to understand the code flow.\n"
+    prompt += "3. Identify any central or frequently depended-upon files that might be core to the project.\n"
+    prompt += "4. Look for patterns in the file naming and organization that might indicate the project's architecture.\n"
+    prompt += "5. Based on the file contents and dependencies, determine the main functionality of the project.\n"
+    prompt += "6. Suggest any potential areas for improvement in the code organization or dependency structure.\n"
+    prompt += "7. Provide a summary of your findings, including the project's purpose and key features.\n"
+
+    return prompt
     
     
 class RepoAgent: # Pure Text-Based 
@@ -100,7 +87,7 @@ class RepoAgent: # Pure Text-Based
         module_dag = assign_importance_score_to_dag(module_dag)
         module_dag = assign_levels(module_dag)
         self.module_dag = module_dag
-        self._summarize_code()
+        # self._summarize_code()
         self.module_names = [self.module_dag[k]['name'] for k in self.module_dag]
         self.module_dag_path = save_dag_as_json(self.module_dag, temp_repo)
         
@@ -113,15 +100,48 @@ class RepoAgent: # Pure Text-Based
         name = self.temp_repo.split("/")[-1]
         return visualize_dag(self.file_dag, name=name)
     
-    def visualize_module(self, cap_node_number: int = 40):
-        self.module_dag = decide_opacity_of_dag(self.module_dag, cap_node_number=cap_node_number)
-        self.module_dag = assign_levels(self.module_dag)
-        name = self.temp_repo.split("/")[-1] + "_module"
-        return visualize_dag(self.module_dag, cap_node_number = cap_node_number, name=name)
+    def show_files(self):
+        python_file_names = get_python_files(self.temp_repo)
+        present_str = f"Python Files in repo: {self.temp_repo}"
+        for i, file_name in enumerate(python_file_names, 1):
+            present_str += f"\n{i}. {file_name}"
+        print(present_str)
     
-    def animate_module(self, cap_node_number: int = 40):
-        name = self.temp_repo.split("/")[-1]
-        output_file = create_gif_from_dag(self.module_dag, output_name = f"anime_{name}", cap_node_number=cap_node_number)
+    @property
+    def python_files_dict(self): # useful for agent prompting
+        python_file_dict = {}
+        # List Python files
+        python_file_names = get_python_files(self.temp_repo)
+        # Print the list of Python file names with numbers
+        present_str = f"Python Files in repo: {self.temp_repo}"
+        for i, file_name in enumerate(python_file_names, 1):
+            present_str += f"\n{i}. {file_name}"
+            python_file_dict[i] = file_name
+        # print(present_str)
+        return python_file_dict
+
+    def get_module_name(self, module_name_or_number: str):
+        if isinstance(module_name_or_number, int):
+            return self.module_names[module_name_or_number - 1]
+        else:
+            return module_name_or_number
+        
+    def get_module_dag(self, module_name_or_number: str, cap_node_number: int = 40, depth: int = 6):
+        module_name = self.get_module_name(module_name_or_number)
+        dag = parse_file_dag(self.temp_repo, module_name, depth=depth)            
+        dag = decide_opacity_of_dag(dag, cap_node_number=cap_node_number)
+        dag = assign_levels(dag)
+        return dag
+            
+    def visualize_module(self, module_name_or_number: str, cap_node_number: int = 40, depth: int = 6):
+        dag = self.get_module_dag(module_name_or_number, cap_node_number=cap_node_number, depth=depth)
+        name = self.temp_repo.split("/")[-1] + "_" + dag[list(dag.keys())[0]]['name']
+        return visualize_dag(dag, cap_node_number = cap_node_number, name=name)
+    
+    def animate_module(self, module_name_or_number: str, frame_count: int = 50, fps: int = 10, cap_node_number: int = 40, depth: int = 6):
+        dag = self.get_module_dag(module_name_or_number, cap_node_number=cap_node_number, depth=depth)
+        name = self.temp_repo.split("/")[-1] + "_" + dag[list(dag.keys())[0]]['name']
+        output_file = create_gif_from_dag(dag, output_name = f"anime_{name}", frame_count=frame_count, fps=fps)
         print("GIF file saved in path: ", output_file)
 
     def animate_file(self, frame_count, fps):
@@ -144,3 +164,15 @@ class RepoAgent: # Pure Text-Based
             raise ValueError("Get VLM response function not provided yet")
         interpreter = CodeInterpreter()
         return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
+    
+    
+    def generate_podcast(self):
+        raise NotImplementedError("Podcast generation not implemented yet")
+    
+    
+    def _to_prompt(self, module_name_or_number: Optional[str]=None):
+        if not module_name_or_number:
+            prompt = dag_to_prompt(self.file_dag)        
+        else:
+            prompt = dag_to_prompt(self.get_module_dag(module_name_or_number), no_file_content=True)
+        return prompt

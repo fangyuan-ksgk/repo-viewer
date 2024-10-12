@@ -205,7 +205,7 @@ entropix.torch_model.torch_model: {
     shadow: true
   }
 }
-entropix.model.model -> entropix.stats.stats: {
+entropix.model.model -> entropix.kvcache.kvcache: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -219,13 +219,6 @@ entropix.model.model -> entropix.weights.weights: {
   style.stroke-dash: 5
   style.animated: true
 }
-entropix.model.model -> entropix.kvcache.kvcache: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
 entropix.model.model -> entropix.config.config: {
   style.stroke: red
   style.opacity: 1.00
@@ -233,28 +226,7 @@ entropix.model.model -> entropix.config.config: {
   style.stroke-dash: 5
   style.animated: true
 }
-entropix.torch_main.torch_main -> entropix.torch_sampler.torch_sampler: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
-entropix.torch_main.torch_main -> entropix.config.config: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
-entropix.torch_main.torch_main -> entropix.tokenizer.tokenizer: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
-entropix.torch_main.torch_main -> entropix.prompts.prompts: {
+entropix.model.model -> entropix.stats.stats: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -268,7 +240,35 @@ entropix.torch_main.torch_main -> entropix.torch_model.torch_model: {
   style.stroke-dash: 5
   style.animated: true
 }
+entropix.torch_main.torch_main -> entropix.tokenizer.tokenizer: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.torch_main.torch_main -> entropix.config.config: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
 entropix.torch_main.torch_main -> entropix.torch_weights.torch_weights: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.torch_main.torch_main -> entropix.torch_sampler.torch_sampler: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.torch_main.torch_main -> entropix.prompts.prompts: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -282,20 +282,6 @@ entropix.torch_main.torch_main -> entropix.torch_kvcache.torch_kvcache: {
   style.stroke-dash: 5
   style.animated: true
 }
-entropix.main.main -> entropix.config.config: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
-entropix.main.main -> entropix.prompts.prompts: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
 entropix.main.main -> entropix.weights.weights: {
   style.stroke: red
   style.opacity: 1.00
@@ -303,7 +289,7 @@ entropix.main.main -> entropix.weights.weights: {
   style.stroke-dash: 5
   style.animated: true
 }
-entropix.main.main -> entropix.kvcache.kvcache: {
+entropix.main.main -> entropix.model.model: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -317,7 +303,21 @@ entropix.main.main -> entropix.tokenizer.tokenizer: {
   style.stroke-dash: 5
   style.animated: true
 }
-entropix.main.main -> entropix.model.model: {
+entropix.main.main -> entropix.config.config: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.main.main -> entropix.kvcache.kvcache: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.main.main -> entropix.prompts.prompts: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -332,13 +332,6 @@ entropix.main.main -> entropix.sampler.sampler: {
   style.animated: true
 }
 entropix.mcts.mcts -> entropix.torch_main.torch_main: {
-  style.stroke: red
-  style.opacity: 1.00
-  style.stroke-width: 2
-  style.stroke-dash: 5
-  style.animated: true
-}
-entropix.torch_model.torch_model -> entropix.torch_kvcache.torch_kvcache: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2
@@ -360,6 +353,13 @@ entropix.torch_model.torch_model -> entropix.torch_stats.torch_stats: {
   style.animated: true
 }
 entropix.torch_model.torch_model -> entropix.config.config: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.torch_model.torch_model -> entropix.torch_kvcache.torch_kvcache: {
   style.stroke: red
   style.opacity: 1.00
   style.stroke-width: 2

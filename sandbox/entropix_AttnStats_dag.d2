@@ -1,0 +1,236 @@
+vars: {
+  d2-config: {
+    sketch: true
+  }
+}
+classes: {
+  file: {
+    label: ""
+    shape: diamond
+    style: {
+      fill: yellow
+      shadow: true
+    }
+  }
+}
+
+classes: {
+  class: {
+    label: ""
+    shape: hexagon
+    style: {
+      fill: lightblue
+      shadow: true
+    }
+  }
+}
+
+classes: {
+  function: {
+    label: ""
+    shape: rectangle
+    style: {
+      fill: white
+      shadow: false
+    }
+  }
+}
+entropix.stats.AttnStats.class: class
+entropix.stats.AttnStats.label: "AttnStats"
+entropix.stats.AttnStats: {
+  style: {
+    opacity: 0.95
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.model.xfmr.class: function
+entropix.model.xfmr.label: "xfmr"
+entropix.model.xfmr: {
+  style: {
+    opacity: 0.95
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.config.config.class: file
+entropix.config.config.label: "config"
+entropix.config.config: {
+  style: {
+    opacity: 0.82
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.kvcache.kvcache.class: file
+entropix.kvcache.kvcache.label: "kvcache"
+entropix.kvcache.kvcache: {
+  style: {
+    opacity: 0.91
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.model.attention.class: function
+entropix.model.attention.label: "attention"
+entropix.model.attention: {
+  style: {
+    opacity: 0.82
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.kvcache.update.class: function
+entropix.kvcache.update.label: "update"
+entropix.kvcache.update: {
+  style: {
+    opacity: 0.86
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.kvcache.KVCache.class: class
+entropix.kvcache.KVCache.label: "KVCache"
+entropix.kvcache.KVCache: {
+  style: {
+    opacity: 0.86
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.weights.weights.class: file
+entropix.weights.weights.label: "weights"
+entropix.weights.weights: {
+  style: {
+    opacity: 0.91
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.stats.stats.class: file
+entropix.stats.stats.label: "stats"
+entropix.stats.stats: {
+  style: {
+    opacity: 1.00
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.model.model.class: file
+entropix.model.model.label: "model"
+entropix.model.model: {
+  style: {
+    opacity: 1.00
+    stroke: "black"
+    stroke-width: 4
+    shadow: true
+  }
+}
+entropix.model.xfmr -> entropix.model.attention: {
+  style.stroke: black
+  style.opacity: 0.82
+  style.stroke-width: 2
+}
+entropix.kvcache.kvcache -> entropix.kvcache.KVCache: {
+  style.stroke: red
+  style.opacity: 0.86
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.kvcache.kvcache -> entropix.kvcache.update: {
+  style.stroke: red
+  style.opacity: 0.86
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.kvcache.update -> entropix.kvcache.KVCache: {
+  style.stroke: black
+  style.opacity: 0.86
+  style.stroke-width: 2
+}
+entropix.kvcache.KVCache -> entropix.kvcache.update: {
+  style.stroke: black
+  style.opacity: 0.86
+  style.stroke-width: 2
+}
+entropix.stats.stats -> entropix.stats.AttnStats: {
+  style.stroke: red
+  style.opacity: 0.95
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.stats.AttnStats: {
+  style.stroke: red
+  style.opacity: 0.95
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.model.xfmr: {
+  style.stroke: red
+  style.opacity: 0.95
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.config.config: {
+  style.stroke: red
+  style.opacity: 0.82
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.kvcache.update: {
+  style.stroke: red
+  style.opacity: 0.86
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.kvcache.kvcache: {
+  style.stroke: red
+  style.opacity: 0.91
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.model.attention: {
+  style.stroke: red
+  style.opacity: 0.82
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.kvcache.KVCache: {
+  style.stroke: red
+  style.opacity: 0.86
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.weights.weights: {
+  style.stroke: red
+  style.opacity: 0.91
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}
+entropix.model.model -> entropix.stats.stats: {
+  style.stroke: red
+  style.opacity: 1.00
+  style.stroke-width: 2
+  style.stroke-dash: 5
+  style.animated: true
+}

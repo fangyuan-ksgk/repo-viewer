@@ -431,7 +431,12 @@ def extract_subgraph_dag(dag, center_node, depth=6, filter_nonclass=False):
             return set()
         neighbors = dag[node]['edges']
         for neighbor in list(neighbors):
-            neighbors.update(get_neighbors(neighbor, current_depth + 1))
+            if isinstance(neighbors, set):
+                neighbors.update(get_neighbors(neighbor, current_depth + 1))
+            elif isinstance(neighbors, list):
+                neighbors.extend(get_neighbors(neighbor, current_depth + 1))
+            else:
+                raise ValueError("Invalid neighbors type: ", type(neighbors))
         return neighbors
 
     def should_include_node(node):
@@ -459,7 +464,6 @@ def extract_subgraph_dag(dag, center_node, depth=6, filter_nonclass=False):
                 if edge in subgraph_nodes and should_include_node(edge):
                     subgraph_dag[node]['edges'].add(edge)
                     
-    print(f"  Number of objects in the subgraph: {len(subgraph_dag.keys())}")
     return subgraph_dag
 
 
@@ -1028,11 +1032,11 @@ def get_navigate_prompt(json_file_path, user_question, retrieved_info, module_na
     return prompt 
 
 
-def parse_file_dag(temp_repo: str, start_file: str):
+def parse_file_dag(temp_repo: str, start_file: str, depth: int = 6):
     dag = build_cross_file_dag(temp_repo, start_file)
     name_map = {dag[k]["name"]: k for k in dag} # Map name to node-id for all nodes in the DAG
     pick_object = list(name_map.keys())[0] # pick the first object from 'start_file'
-    sub_dag = extract_subgraph_dag(dag, name_map[pick_object], depth=6) # Extact depedency graph starting from pick_object
+    sub_dag = extract_subgraph_dag(dag, name_map[pick_object], depth=depth) # Extact depedency graph starting from pick_object
     sub_dag = decide_opacity_of_dag(sub_dag, progress=1.0, cap_node_number=99)
     return sub_dag 
 
