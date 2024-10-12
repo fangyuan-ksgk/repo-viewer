@@ -206,12 +206,13 @@ def save_png_from_d2(d2_code, file_name, output_dir="d2_output"):
     return png_file_path
 
 
-def visualize_dag(dag: dict, output_dir="d2_output", show: bool = True):
+def visualize_dag(dag: dict, output_dir="d2_output", show: bool = True, cap_node_number = 50):
     """
     Visualize the DAG using d2
     """
     if 'opacity' not in dag[list(dag.keys())[0]]:
-        dag = decide_opacity_of_dag(dag, progress=1.0, cap_node_number=30)
+        dag = decide_opacity_of_dag(dag, progress=1.0, cap_node_number=cap_node_number)
+        
     d2_code = build_d2_from_dag(dag, include_overhead=True)
     png_file_path = save_png_from_d2(d2_code, "dag", output_dir=output_dir)
     if png_file_path:
@@ -274,11 +275,12 @@ def filter_opacity_graph(graph):
                 edge for edge in node_data['edges']
                 if graph[edge]['opacity'] > 0
             ]
+            filtered_graph[node_id]['edges'] = list(set(filtered_graph[node_id]['edges']))
     return filtered_graph
 
 
 
-def decide_opacity_of_dag(dag: dict, progress: float, cap_node_number: int = 15) -> dict:
+def decide_opacity_of_dag(dag: dict, progress: float = 1.0, cap_node_number: int = 200) -> dict:
     # Adjust importance scores based on hierarchy
     importance_groups = {}
     for node, data in dag.items():
@@ -328,7 +330,7 @@ def decide_opacity_of_dag(dag: dict, progress: float, cap_node_number: int = 15)
 
 # SUDO Gif: level-wise appearing animation with D2-diagram
 
-def cap_dag_count(dag: dict, cap_node_number: int = 15) -> dict:
+def cap_dag_count(dag: dict, cap_node_number: int = 200) -> dict:
     # Adjust importance scores based on hierarchy
     importance_groups = {}
     for node, data in dag.items():
@@ -365,22 +367,56 @@ def assign_levels(sub_dag):
     level = 1
     current_level_nodes = [node for node, edges in incoming_edges.items() if not edges]
     
+    # If there are no nodes without incoming edges, start with any node
+    if not current_level_nodes:
+        current_level_nodes = [next(iter(sub_dag))]
+    
+    # Keep track of assigned nodes
+    assigned_nodes = set()
+    
     # Assign levels to all nodes
     while current_level_nodes:
         for node in current_level_nodes:
             sub_dag[node]['level'] = level
+            assigned_nodes.add(node)
         
         # Find next level nodes
         next_level_nodes = []
         for node in sub_dag:
-            if 'level' not in sub_dag[node]:
-                if all(sub_dag.get(parent, {}).get('level') is not None for parent in incoming_edges[node]):
+            if node not in assigned_nodes:
+                if all(parent in assigned_nodes for parent in incoming_edges[node]):
                     next_level_nodes.append(node)
+        
+        # If no new nodes were found, but there are still unassigned nodes,
+        # add one of the unassigned nodes to break potential cycles
+        if not next_level_nodes and len(assigned_nodes) < len(sub_dag):
+            unassigned = set(sub_dag.keys()) - assigned_nodes
+            next_level_nodes.append(next(iter(unassigned)))
         
         current_level_nodes = next_level_nodes
         level += 1
     
+    # Assign the highest level + 1 to any remaining unassigned nodes
+    for node in sub_dag:
+        if 'level' not in sub_dag[node]:
+            sub_dag[node]['level'] = level
+    
     return sub_dag
+
+
+def set_full_opacity(dag): 
+    """
+    Set the opacity of all nodes in the DAG to 1.0 (fully opaque).
+    
+    Args:
+    dag (dict): The directed acyclic graph represented as a dictionary.
+    
+    Returns:
+    dict: The updated DAG with all nodes set to full opacity.
+    """
+    for node in dag:
+        dag[node]['opacity'] = 1.0
+    return dag
 
 
 def generate_opacity_frames(sub_dag, frame_count, static_portion: float = 0.2):
@@ -439,7 +475,7 @@ def generate_opacity_frames(sub_dag, frame_count, static_portion: float = 0.2):
 
 def create_gif(png_files: list, output_file: str = "commit_dag_evolution.gif", fps: int = 2):
     # Define a common size for all frames
-    MAX_SIZE = (1024, 512)  # You can adjust this as needed
+    MAX_SIZE = (2048, 1024)  # You can adjust this as needed
 
     # Create GIF
     images = []
@@ -470,7 +506,7 @@ def create_gif(png_files: list, output_file: str = "commit_dag_evolution.gif", f
         print("No PNG files were found to create the GIF.")
     
     
-def write_dependency_dags(dags, output_dir="d2_output", n_frames=10):
+def write_dependency_dags(dags, output_dir="d2_output", n_frames=10, cap_node_number=99):
     
     pbar = tqdm(total=len(dags)*n_frames, desc="Processing DAGs into PNG frames")
 
@@ -478,7 +514,7 @@ def write_dependency_dags(dags, output_dir="d2_output", n_frames=10):
         
         # Animate the growing process by increasing progress from 0 to 1
         for progress in np.linspace(0, 1, n_frames):
-            sub_dag = decide_opacity_of_dag(dag, progress=progress, cap_node_number=15)
+            sub_dag = decide_opacity_of_dag(dag, progress=progress, cap_node_number=cap_node_number)
             d2_code = build_d2_from_dag(sub_dag, include_overhead=True)
             
             # Save each frame as an SVG

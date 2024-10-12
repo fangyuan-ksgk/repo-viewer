@@ -15,7 +15,8 @@ import shutil
 from tools.diagram import *
 
 def clone_repo(repo_url, target_dir):
-    git.Repo.clone_from(repo_url, target_dir)
+    if not os.path.exists(target_dir):
+        git.Repo.clone_from(repo_url, target_dir)
 
 def parse_imports(file_path):
     with open(file_path, 'r') as file:
@@ -615,7 +616,7 @@ def present_repo_info(fastest_repos):
         
         print()
         
-def get_fastest_growing_repos(days_ago=7, top_n=10, print=False):
+def get_fastest_growing_repos(days_ago=7, top_n=10, print_info=False):
     # GitHub API endpoint
     url = "https://api.github.com/search/repositories"
     
@@ -624,7 +625,7 @@ def get_fastest_growing_repos(days_ago=7, top_n=10, print=False):
     
     # Query parameters
     params = {
-        "q": f"created:>{date_7_days_ago}",
+        "q": f"created:>{date_7_days_ago} language:python",
         "sort": "stars",
         "order": "desc",
         "per_page": 100
@@ -634,16 +635,19 @@ def get_fastest_growing_repos(days_ago=7, top_n=10, print=False):
     response = requests.get(url, params=params)
     repos = response.json()["items"]
     
-    # Calculate growth rate (stars per day)
+    # Calculate growth rate (stars per day) and filter for Python repos
+    fastest_growing = []
     for repo in repos:
-        created_at = datetime.strptime(repo["created_at"], "%Y-%m-%dT%H:%M:%SZ")
-        days_since_creation = (datetime.now() - created_at).days or 1  # Avoid division by zero
-        repo["growth_rate"] = repo["stargazers_count"] / days_since_creation
+        if repo["language"] == "Python":
+            created_at = datetime.strptime(repo["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+            days_since_creation = (datetime.now() - created_at).days or 1  # Avoid division by zero
+            repo["growth_rate"] = repo["stargazers_count"] / days_since_creation
+            fastest_growing.append(repo)
     
     # Sort by growth rate and get top N
-    fastest_growing = sorted(repos, key=lambda x: x["growth_rate"], reverse=True)[:top_n]
+    fastest_growing = sorted(fastest_growing, key=lambda x: x["growth_rate"], reverse=True)[:top_n]
     
-    if print:
+    if print_info:
         present_repo_info(fastest_growing)
     return fastest_growing
 
@@ -681,7 +685,7 @@ def build_commit_evolution_gif_of_repo(repo_url: str, temp_repo: str = "temp_rep
     return img
 
 
-def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 15, output_dir="d2_output", output_file="evolve_graph.gif", fps=2, static_portion: float = 0.2):
+def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 40, output_dir="d2_output", output_file="evolve_graph.gif", fps=2, static_portion: float = 0.2):
     
     sub_dag = cap_dag_count(sub_dag, cap_node_number=cap_node_number)
     sub_dag = assign_levels(sub_dag)
@@ -1025,7 +1029,7 @@ def parse_file_dag(temp_repo: str, start_file: str):
     name_map = {dag[k]["name"]: k for k in dag} # Map name to node-id for all nodes in the DAG
     pick_object = list(name_map.keys())[0] # pick the first object from 'start_file'
     sub_dag = extract_subgraph_dag(dag, name_map[pick_object], depth=6) # Extact depedency graph starting from pick_object
-    sub_dag = decide_opacity_of_dag(sub_dag, progress=1.0, cap_node_number=30)
+    sub_dag = decide_opacity_of_dag(sub_dag, progress=1.0, cap_node_number=99)
     return sub_dag 
 
 
@@ -1055,6 +1059,6 @@ def parse_directory_dag(dir_path: str):
     
     # Ensure edges are lists
     for node_id in master_dag:
-        master_dag[node_id]['edges'] = list(master_dag[node_id]['edges'])
+        master_dag[node_id]['edges'] = list(set(master_dag[node_id]['edges']))
     
     return master_dag
