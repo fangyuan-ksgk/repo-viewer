@@ -11,12 +11,12 @@ Animating a codebase's file structure:
 Animating a specific module (function, class, file, etc.):
 
 <div align="center">
-  <img src="anime_entropix_module.gif" width="1200" alt="Entropix Module">
+  <img src="anime_entropix_stats.gif" width="1200" alt="Entropix Module">
 </div>
 
 Listen to a podcast of the codebase:
 
 <audio controls>
-  <source src="sandbox/entropix_podcast.mp3" type="audio/mpeg">
+  <source src="sandbox/podcast_entropix.mp3" type="audio/mpeg">
   Your browser does not support the audio element.
 </audio>
