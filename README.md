@@ -16,7 +16,4 @@ Animating a specific module (function, class, file, etc.):
 
 Listen to a podcast of the codebase:
 
-<audio controls>
-  <source src="sandbox/podcast_entropix.mp3" type="audio/mpeg">
-  Your browser does not support the audio element.
-</audio>
+[Listen to the podcast](sandbox/podcast_entropix.mp3)
