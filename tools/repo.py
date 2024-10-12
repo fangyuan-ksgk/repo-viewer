@@ -18,6 +18,10 @@ def clone_repo(repo_url, target_dir):
     if not os.path.exists(target_dir):
         git.Repo.clone_from(repo_url, target_dir)
 
+def decide_temp_repo(repo_url):
+    temp_repo = repo_url.split("/")[-1].replace(".git", "")
+    return temp_repo
+
 def parse_imports(file_path):
     with open(file_path, 'r') as file:
         tree = ast.parse(file.read())

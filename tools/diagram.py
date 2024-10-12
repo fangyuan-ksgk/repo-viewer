@@ -206,7 +206,7 @@ def save_png_from_d2(d2_code, file_name, output_dir="d2_output"):
     return png_file_path
 
 
-def visualize_dag(dag: dict, output_dir="d2_output", show: bool = True, cap_node_number = 50):
+def visualize_dag(dag: dict, output_dir="sandbox", show: bool = True, cap_node_number = 50, name: str = ""):
     """
     Visualize the DAG using d2
     """
@@ -214,7 +214,7 @@ def visualize_dag(dag: dict, output_dir="d2_output", show: bool = True, cap_node
         dag = decide_opacity_of_dag(dag, progress=1.0, cap_node_number=cap_node_number)
         
     d2_code = build_d2_from_dag(dag, include_overhead=True)
-    png_file_path = save_png_from_d2(d2_code, "dag", output_dir=output_dir)
+    png_file_path = save_png_from_d2(d2_code, f"{name}_dag", output_dir=output_dir)
     if png_file_path:
         if show:    
             dag_graph = Image.open(png_file_path)

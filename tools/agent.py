@@ -110,12 +110,14 @@ class RepoAgent: # Pure Text-Based
             save_dag_as_json(self.module_dag, self.temp_repo)
     
     def visualize_file(self):
-        return visualize_dag(self.file_dag)
+        name = self.temp_repo.split("/")[-1]
+        return visualize_dag(self.file_dag, name=name)
     
     def visualize_module(self, cap_node_number: int = 40):
         self.module_dag = decide_opacity_of_dag(self.module_dag, cap_node_number=cap_node_number)
         self.module_dag = assign_levels(self.module_dag)
-        return visualize_dag(self.module_dag, cap_node_number = cap_node_number)
+        name = self.temp_repo.split("/")[-1] + "_module"
+        return visualize_dag(self.module_dag, cap_node_number = cap_node_number, name=name)
     
     def animate_module(self, cap_node_number: int = 40):
         name = self.temp_repo.split("/")[-1]
