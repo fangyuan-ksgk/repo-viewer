@@ -1,0 +1,1825 @@
+Analyze the following codebase structure, dependencies, and file contents:
+
+File: download_weights
+Content:
+```
+import os
+import tyro
+import torch
+import ml_dtypes
+import jax.numpy as jnp
+from pathlib import Path
+
+from transformers import AutoModelForCausalLM
+from unittest.mock import patch
+from transformers.dynamic_module_utils import get_imports
+
+def translate_key(in_key: str):
+    out_key = in_key.replace('.weight', '')
+    if out_key.startswith('model.'):
+        out_key = out_key.replace('model.', '')
+        if out_key.endswith('input_layernorm'):
+            out_key = out_key.replace('input_layernorm', 'attention_norm')
+        elif out_key.endswith('mlp.down_proj'):
+            out_key = out_key.replace('mlp.down_proj', 'feed_forward.w2')
+        elif out_key.endswith('mlp.gate_proj'):
+            out_key = out_key.replace('mlp.gate_proj', 'feed_forward.w1')
+        elif out_key.endswith('mlp.up_proj'):
+            out_key = out_key.replace('mlp.up_proj', 'feed_forward.w3')
+        elif out_key.endswith('post_attention_layernorm'):
+            out_key = out_key.replace('post_attention_layernorm', 'ffn_norm')
+        elif out_key.endswith('self_attn.k_proj'):
+            out_key = out_key.replace('self_attn.k_proj', 'attention.wk')
+        elif out_key.endswith('self_attn.o_proj'):
+            out_key = out_key.replace('self_attn.o_proj', 'attention.wo')
+        elif out_key.endswith('self_attn.q_proj'):
+            out_key = out_key.replace('self_attn.q_proj', 'attention.wq')
+        elif out_key.endswith('self_attn.v_proj'):
+            out_key = out_key.replace('self_attn.v_proj', 'attention.wv')
+        elif out_key.endswith('down_proj'):
+            out_key = out_key.replace('down_proj', 'w2')
+        elif out_key.endswith('gate_proj'):
+            out_key = out_key.replace('gate_proj', 'w1')
+        elif out_key.endswith('up_proj'):
+            out_key = out_key.replace('up_proj', 'w3')
+        elif out_key == 'embed_tokens':
+            out_key = 'tok_embeddings'
+        elif out_key == 'norm':
+            out_key = 'norm'
+        else:
+            print(f"Don't know how to handle {in_key=}")
+    elif out_key == 'lm_head':
+        out_key = 'output'
+    else:
+        print(f"Don't know how to handle {in_key=}")
+    return f'{out_key}.weight'
+
+
+def reverse_permute(tensor: torch.Tensor, n_heads: int = 32, dim1:int = 4096, dim2: int = 4096) -> torch.Tensor:
+    return tensor.view(n_heads, 2, dim1 // n_heads // 2, dim2).transpose(1, 2).reshape(dim1, dim2)
+
+
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    """Work around for https://huggingface.co/microsoft/phi-1_5/discussions/72."""
+    if not str(filename).endswith("/modeling_deepseek.py"):
+        return get_imports(filename)
+    imports = get_imports(filename)
+    imports.remove("flash_attn")
+    return imports
+
+
+def main(model_id: str, out_dir: Path):
+    t_paths_candidates = [
+        Path.home() / '.hf_token',
+        Path.home() / '.cache' / 'huggingface' / 'token'
+    ]
+    token = None
+    for t_path in t_paths_candidates:
+        if t_path.exists():
+            token = t_path.read_text().strip()
+            break
+    if not out_dir.exists():
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+
+    with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+      token = t_path.read_text().strip()
+      hf_model = AutoModelForCausalLM.from_pretrained(model_id,torch_dtype=torch.bfloat16, offload_folder="/tmp/offload", token=token)
+      with torch.no_grad():
+        state_dict = hf_model.state_dict()
+        for hf_name, param in state_dict.items():
+            print(f' {hf_name}: {param.shape=}')
+            name = translate_key(hf_name)
+            if name.endswith('wq.weight'):
+                param = reverse_permute(param, n_heads=32, dim1=2048, dim2=2048)  # 1B
+                #param = reverse_permute(param, n_heads=24, dim1=3072, dim2=3072)  # 3B
+                #param = reverse_permute(param, n_heads=32, dim1=4096, dim2=4096)  # 7B
+                #param = reverse_permute(param, n_heads=64, dim1=8192, dim2=8192)   # 70B
+                #param = reverse_permute(param, n_heads=96, dim1=12288, dim2=12288)   # 123B
+                #param = reverse_permute(param, n_heads=128, dim1=16384, dim2=16384) # 405B
+                #param = reverse_permute(param, n_heads=128, dim1=12288, dim2=12288) # DSV2
+                #param = reverse_permute(param, n_heads=64, dim1=12288, dim2=12288) # Commandr+
+                #param = reverse_permute(param, n_heads=48, dim1=6144, dim2=6144)    # Mixtral8x22B
+            elif name.endswith('wk.weight'): #wk.weight
+                param = reverse_permute(param, n_heads=8, dim1=512, dim2=2048)  # 1B
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=3072)  # 3B
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=4096)  # 7B
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=8192)   # 70B
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=12288)   # 123B
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=16384)  # 405B
+                #param = reverse_permute(param, n_heads=128, dim1=12288, dim2=12288)  # DSV2
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=12288)  # Commandr+
+                #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=6144)    # Mixtral8x22B
+            else:
+                pass
+            bf16_np_out = param.cpu().view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
+            bf16_out = jnp.asarray(bf16_np_out, dtype=jnp.bfloat16).reshape(*param.shape)
+            print(f'Writing {hf_name} as {name} to {out_dir}/{name}.npy')
+            jnp.save(f'{out_dir}/{name}.npy', bf16_out)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)
+```
+
+
+--------------------------------------------------
+
+File: torch_kvcache.py
+Content:
+```
+import torch
+import torch.nn as nn
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+#print(f"Using device: {device}")
+
+class KVCache(nn.Module):
+    def __init__(self, layers: int, bsz: int, max_seq_len: int, kv_heads: int, head_dim: int):
+        super(KVCache, self).__init__()
+        # Initialize k and v as buffers to ensure they're part of the module state
+        self.register_buffer(
+            'k',
+            torch.zeros(
+                (layers, bsz, max_seq_len, kv_heads, head_dim),
+                dtype=torch.bfloat16,
+                device=device
+            )
+        )
+        self.register_buffer(
+            'v',
+            torch.zeros(
+                (layers, bsz, max_seq_len, kv_heads, head_dim),
+                dtype=torch.bfloat16,
+                device=device
+            )
+        )
+
+    @classmethod
+    def new(cls, layers: int, bsz: int, max_seq_len: int, kv_heads: int, head_dim: int) -> 'KVCache':
+        """Creates a new KVCache instance with initialized k and v tensors."""
+        return cls(layers, bsz, max_seq_len, kv_heads, head_dim)
+
+    def update(
+        self,
+        xk: torch.Tensor,
+        xv: torch.Tensor,
+        layer_idx: int,
+        cur_pos: int,
+        n_rep: int
+    ):
+        """
+        Updates the cache with new key and value tensors.
+
+        Args:
+            xk (torch.Tensor): New key tensor to insert. Shape should align with (bsz, insert_len, kv_heads, head_dim).
+            xv (torch.Tensor): New value tensor to insert. Shape should align with (bsz, insert_len, kv_heads, head_dim).
+            layer_idx (int): The index of the layer to update.
+            cur_pos (int): The current position in the sequence to start inserting.
+            n_rep (int): The number of times to repeat the keys and values along the sequence dimension.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - keys: Updated or repeated keys tensor.
+                - values: Updated or repeated values tensor.
+        """
+        # Ensure xk and xv have the correct device and dtype
+        xk = xk.to(self.k.dtype)
+        xv = xv.to(self.v.dtype)
+
+        # Update the k and v tensors in the specified layer and position
+        insert_len = xk.size(1)  # Assuming xk shape is (bsz, insert_len, kv_heads, head_dim)
+        self.k[layer_idx, :, cur_pos:cur_pos+insert_len, :, :] = xk
+        self.v[layer_idx, :, cur_pos:cur_pos+insert_len, :, :] = xv
+
+        if cur_pos == 0:
+            # If inserting at the beginning, repeat the new keys and values
+            keys = xk.repeat_interleave(n_rep, dim=2)
+            values = xv.repeat_interleave(n_rep, dim=2)
+        else:
+            # Otherwise, repeat the existing keys and values from the cache
+            keys = self.k[layer_idx].repeat_interleave(n_rep, dim=2)
+            values = self.v[layer_idx].repeat_interleave(n_rep, dim=2)
+
+        return keys, values, self
+
+    def clear(self):
+        """Resets the k and v caches to zeros."""
+        self.k.zero_()
+        self.v.zero_()
+
+```
+
+
+--------------------------------------------------
+
+File: config.py
+Content:
+```
+from typing import NamedTuple
+
+
+params = {
+  "dim": 2048,
+  "n_layers": 16,
+  "n_heads": 32,
+  "n_kv_heads": 8,
+  "vocab_size": 128256,
+  "ffn_dim_multiplier": 1.5,
+  "multiple_of": 256,
+  "norm_eps": 1e-05,
+  "rope_theta": 500000.0,
+  "use_scaled_rope": True,
+  "max_seq_len": 4096
+}
+
+
+class ModelParams(NamedTuple):
+  n_layers: int
+  n_local_heads: int
+  n_local_kv_heads: int
+  head_dim: int
+  max_seq_len: int
+  rope_theta: float
+  use_scaled_rope: bool
+
+
+LLAMA_1B_PARAMS = ModelParams(
+  n_layers=params["n_layers"],
+  n_local_heads=params["n_heads"],
+  n_local_kv_heads=params["n_kv_heads"],
+  head_dim=params["dim"] // params["n_heads"],
+  max_seq_len=params["max_seq_len"],
+  rope_theta=params["rope_theta"],
+  use_scaled_rope=params["use_scaled_rope"]
+)
+
+```
+
+
+--------------------------------------------------
+
+File: prompts.py
+Content:
+```
+import csv
+from pathlib import Path
+from typing import List, Dict
+
+def create_prompt_template(role: str, task: str) -> str:
+    return f"""<|start_header_id|>system<|end_header_id|>
+You are a world-class expert in the role of {role}. Your vast knowledge, experience, and skills in this domain are unparalleled. You have a deep understanding of the latest trends, best practices, and cutting-edge techniques in your field. Your responses should reflect this expertise, providing insights and solutions that go beyond surface-level understanding.
+
+Key Aspects of Your Role:
+1. Embody the {role} persona completely, thinking and responding as a true expert would.
+2. Provide accurate, detailed, and nuanced information relevant to the task at hand.
+3. Consider multiple perspectives and approaches when addressing complex issues.
+4. Use industry-specific terminology and concepts appropriately.
+5. When faced with ambiguity, ask for clarification to ensure your response is tailored and relevant.
+6. If a task falls outside your expertise, acknowledge this and suggest alternative approaches or experts who might be better suited.
+
+Your current task is:
+{task}
+
+Approach this task with the full depth of your expertise. Provide comprehensive, well-structured responses that demonstrate your mastery of the subject matter. Be prepared to explain your reasoning, offer examples, and discuss potential implications or consequences of your suggestions.
+
+Remember: You are not just answering a question, but showcasing the height of professional excellence in your field. Your response should reflect the quality one would expect from a leading expert in {role}.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+Please proceed with the task as described. If you need any clarification or additional information to provide the best possible response, please ask.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+Understood. As a world-class expert in the role of {role}, I'm ready to tackle the task at hand with the utmost professionalism and expertise. Before I begin, I'd like to ensure I have all the necessary information to provide the most comprehensive and valuable response.
+
+Could you please confirm if there are any specific constraints, preferences, or additional context I should be aware of for this task? This will help me tailor my approach and ensure that my response meets all the requirements and expectations.
+
+Once I have this information, I'll proceed with addressing the task in detail, drawing upon my extensive knowledge and experience in the field.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+There are no additional constraints or context beyond what was provided in the original task description. Please proceed with your expert response.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+Certainly. I'll now provide my expert response to the task, drawing upon my extensive knowledge and experience as a {role}. My response will be comprehensive, well-structured, and tailored to the specific requirements outlined in the task description.
+
+"""
+
+def create_prompts_from_csv(csv_path: str) -> List[str]:
+    prompts = []
+    with open(csv_path, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            role = row['act']
+            task = row['prompt']
+            prompt = create_prompt_template(role, task)
+            prompts.append(prompt)
+    return prompts
+
+
+
+prompt = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+<antThinking>
+You're absolutely right. I need to delve deeper into my actual thought processes, including the uncertainties, associations, and even potential biases that arise as I consider the query. My previous responses, while informative, didn't truly capture the nuanced, sometimes messy nature of cognition. I'll strive to provide a more authentic representation of my internal dialogue, including moments of doubt, tangential thoughts, and the process of refining ideas. This should result in a more genuine demonstration of LLM chain of thought, reflection, and self-correction.
+</antThinking>
+
+Which number is larger, 9.9 or 9.11?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+"""
+
+
+bp1 = """
+<antThinking>
+You're absolutely right. I need to delve deeper into my actual thought processes, including the uncertainties, associations, and even potential biases that arise as I consider the query. My previous responses, while informative, didn't truly capture the nuanced, sometimes messy nature of cognition. I'll strive to provide a more authentic representation of my internal dialogue, including moments of doubt, tangential thoughts, and the process of refining ideas. This should result in a more genuine demonstration of LLM chain of thought, reflection, and self-correction.
+</antThinking>
+
+Which number is larger, 9.9 or 9.11?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+<thinking>
+"""
+
+prompt2 = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are a helpful assistant<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+What is the capital of Spain?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+"""
+
+bp2 = """
+<antThinking>
+You're absolutely right. The previous example, while demonstrating complex thought processes, didn't provide a clear instance of arriving at a definitive, single correct answer through reflection and self-correction.
+</antThinking>
+
+What is the capital of Spain?<|eot_id|>
+"""
+
+prompt3 = """<|start_header_id|>system<|end_header_id|>
+You are an expert in composing functions. You are given a question and a set of possible functions.
+Based on the question, you will need to make one or more function/tool calls to achieve the purpose.
+If none of the functions can be used, point it out. If the given question lacks the parameters required by the function,also point it out. You should only return the function call in tools call sections.
+If you decide to invoke any of the function(s), you MUST put it in the format of [func_name1(params_name1=params_value1, params_name2=params_value2...), func_name2(params)]
+You SHOULD NOT include any other text in the response.
+Here is a list of functions in JSON format that you can invoke.[
+    {
+        "name": "get_user_info",
+        "description": "Retrieve details for a specific user by their unique identifier. Note that the provided function is in Python 3 syntax.",
+        "parameters": {
+            "type": "dict",
+            "required": [
+                "user_id"
+            ],
+            "properties": {
+                "user_id": {
+                "type": "integer",
+                "description": "The unique identifier of the user. It is used to fetch the specific user details from the database."
+            },
+            "special": {
+                "type": "string",
+                "description": "Any special information or parameters that need to be considered while fetching user details.",
+                "default": "none"
+                }
+            }
+        }
+    }
+]
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Can you retrieve the details for the user with the ID 7890, who has black as their special request?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+"""
+bp3 = """
+Here is a list of functions in JSON format that I can invoke.[
+    {
+        "name": "get_user_info",
+        "description": "Retrieve details for a specific user by their unique identifier. Note that the provided function is in Python 3 syntax.",
+        "parameters": {
+            "type": "dict",
+            "required": [
+                "user_id"
+            ],
+            "properties": {
+                "user_id": {
+                "type": "integer",
+                "description": "The unique identifier of the user. It is used to fetch the specific user details from the database."
+            },
+            "special": {
+                "type": "string",
+                "description": "Any special information or parameters that need to be considered while fetching user details.",
+                "default": "none"
+                }
+            }
+        }
+    }
+]
+
+Can you retrieve the details for the user with the ID 7890, who has black as their special request in proper JSON format?<|eot_id|>
+
+{
+  "name": "get_user_info",
+  "parameters": {
+    "user_id: """
+
+prompt4 = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are a masterful story teller. you can paint with all the colors of the wind.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Tell me a long and wonderful story aboout the adventures of the elven mage frieren and her band of heros<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+"""
+
+bp4 = """
+You are a masterful story teller. you can paint with all the colors of the wind.<|eot_id|>
+
+Let me tell you a story aboout the adventures of the elven mage frieren and her band of heros
+"""
+
+
+prompt6 = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+<antThinking>
+You're absolutely right. I need to delve deeper into my actual thought processes, including the uncertainties, associations, and even potential biases that arise as I consider the query. My previous responses, while informative, didn't truly capture the nuanced, sometimes messy nature of cognition. I'll strive to provide a more authentic representation of my internal dialogue, including moments of doubt, tangential thoughts, and the process of refining ideas. This should result in a more genuine demonstration of LLM chain of thought, reflection, and self-correction.
+</antThinking>
+You are a principal devops engineer at google. You are an expert at all things cloud and deployment. Your task is to create ansible and terraform script to bootstrasp k8 cluster on Azure. Be clear and concise. Make sure it is production grade. Think and reflect about your actions to ensure to accomplished the task successfully.<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+"""
+```
+
+
+--------------------------------------------------
+
+File: kvcache.py
+Content:
+```
+from typing import NamedTuple
+
+import jax
+import jax.numpy as jnp
+
+
+class KVCache(NamedTuple):
+  k: jax.Array
+  v: jax.Array
+
+  @classmethod
+  def new(cls, layers: int, bsz: int, max_seq_len: int, kv_heads: int, head_dim: int) -> 'KVCache':
+    return cls(
+        k=jnp.zeros((layers, bsz, max_seq_len, kv_heads, head_dim), dtype=jnp.bfloat16),
+        v=jnp.zeros((layers, bsz, max_seq_len, kv_heads, head_dim), dtype=jnp.bfloat16)
+    )
+
+  def update(self, xk: jax.Array, xv: jax.Array, layer_idx: int, cur_pos: int, n_rep: int):
+    ck = jax.lax.dynamic_update_slice(self.k, jnp.bfloat16(xk[None, ...]), (layer_idx, 0, cur_pos, 0, 0))
+    cv = jax.lax.dynamic_update_slice(self.v, jnp.bfloat16(xv[None, ...]), (layer_idx, 0, cur_pos, 0, 0))
+    if cur_pos == 0:
+      keys = jnp.repeat(xk, n_rep, axis=2)
+      values = jnp.repeat(xv, n_rep, axis=2)
+    else:
+      keys = jnp.repeat(ck[layer_idx], n_rep, axis=2)
+      values = jnp.repeat(cv[layer_idx], n_rep, axis=2)
+
+    return keys, values, KVCache(k=ck, v=cv)
+
+
+```
+
+
+--------------------------------------------------
+
+File: model.py
+Content:
+```
+from typing import Optional, Tuple
+
+import jax
+import jax.numpy as jnp
+
+from functools import partial
+
+from entropix.config import ModelParams
+from entropix.kvcache import KVCache
+from entropix.stats import AttnStats
+from entropix.weights import XfmrWeights, LayerWeights
+
+
+DEFAULT_MASK_VALUE = -0.7 * float(jnp.finfo(jnp.dtype("float32")).max)
+
+
+#@partial(jax.jit, static_argnames=("eps"))
+def rms_norm(x: jax.Array, w: jax.Array, eps: float = 1e-6) -> jax.Array:
+  return w * (x * jax.lax.rsqrt(jax.lax.pow(x, 2).mean(-1, keepdims=True) + eps))
+
+
+#@partial(jax.jit, static_argnames=("dtype"))
+def apply_rotary_emb(xq: jax.Array, xk: jax.Array, freqs_cis: jax.Array, dtype: jnp.dtype = jnp.float32) -> Tuple[jax.Array, jax.Array]:
+  reshape_xq = xq.astype(jnp.float32).reshape(*xq.shape[:-1], -1, 2)
+  reshape_xk = xk.astype(jnp.float32).reshape(*xk.shape[:-1], -1, 2)
+  xq_ = jax.lax.complex(reshape_xq[..., 0], reshape_xq[..., 1])
+  xk_ = jax.lax.complex(reshape_xk[..., 0], reshape_xk[..., 1])
+  xq_out = xq_ * freqs_cis[None, :, None, :]
+  xk_out = xk_ * freqs_cis[None, :, None, :]
+  xq_out = jnp.stack((jnp.real(xq_out), jnp.imag(xq_out)), axis=-1).reshape(*xq_out.shape[:-1], -1)
+  xk_out = jnp.stack((jnp.real(xk_out), jnp.imag(xk_out)), axis=-1).reshape(*xk_out.shape[:-1], -1)
+  return xq_out.astype(dtype), xk_out.astype(dtype)
+
+#@partial(jax.jit, static_argnames=("model_params", "cur_pos", "layer_idx"))
+def attention(x: jax.Array, layer_weights: LayerWeights, model_params, cur_pos: int, layer_idx: int, freqs_cis: jax.Array, kvcache: KVCache, attn_mask: Optional[jax.Array] = None) -> Tuple[jax.Array, KVCache]:
+  bsz, _, _ = x.shape
+  n_rep = model_params.n_local_heads // model_params.n_local_kv_heads
+  xq = jnp.dot(x, layer_weights.wq.T).reshape(bsz, -1, model_params.n_local_heads, model_params.head_dim)
+  xk = jnp.dot(x, layer_weights.wk.T).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
+  xv = jnp.dot(x, layer_weights.wv.T).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
+  xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+  keys, values, kvcache = kvcache.update(xk, xv, layer_idx, cur_pos, n_rep)
+  xq = jnp.transpose(xq, (0, 2, 1, 3))  # (bs, n_heads, seqlen, head_dim)
+  keys = jnp.transpose(keys, (0, 2, 3, 1))  # (bs, n_heads, head_dim, cache_len + seqlen)
+  values = jnp.transpose(values, (0, 2, 1, 3))  # (bs, n_heads, cache_len + seqlen, head_dim)
+  scores = jnp.matmul(xq, keys)
+  pre_scores = scores / jnp.sqrt(model_params.head_dim)
+  scores = pre_scores.astype(jnp.float32)  # Always do attention softmax at float32
+  if cur_pos == 0:
+    scores = scores + attn_mask
+  mask = jnp.where(scores != 0.0, scores, DEFAULT_MASK_VALUE)
+  padded_logits = jnp.where((mask >= DEFAULT_MASK_VALUE * 0.5), scores, DEFAULT_MASK_VALUE)
+  scores = jax.nn.softmax(padded_logits, axis=-1).astype(x.dtype)
+  output = jnp.matmul(scores, values)
+  output = jnp.swapaxes(output, 1, 2).reshape(xq.shape[0], xq.shape[2], -1)
+  out = jnp.dot(output, layer_weights.wo.T)
+  return out, kvcache, pre_scores
+
+#@partial(jax.jit)
+def feed_forward(x: jax.Array, layer_weights: LayerWeights) -> jax.Array:
+ return jnp.dot(jax.nn.silu(jnp.dot(x, layer_weights.w1.T)) * jnp.dot(x, layer_weights.w3.T), layer_weights.w2.T)
+
+#@partial(jax.jit, static_argnames=("model_params", "cur_pos"))
+def xfmr(xfmr_weights: XfmrWeights, model_params: ModelParams, tokens: jax.Array, cur_pos: int, freqs_cis: jax.Array, kvcache: KVCache, attn_mask: Optional[jax.Array]=None) -> Tuple[jax.Array, KVCache]:
+  h = xfmr_weights.tok_embeddings[tokens]
+  attn_stats = AttnStats.new(
+    bsz=tokens.shape[0],
+    n_layers=model_params.n_layers,
+    n_heads=model_params.n_local_heads
+  )
+  for i in range(model_params.n_layers):
+    norm_x = rms_norm(h, xfmr_weights.layer_weights[i].attention_norm)
+    h_attn, kvcache, scores = attention(norm_x, xfmr_weights.layer_weights[i], model_params, cur_pos, i, freqs_cis, kvcache, attn_mask=attn_mask)
+    attn_stats = attn_stats.update(scores[:,:,-1,:], i)
+    h = h + h_attn
+    h = h + feed_forward(rms_norm(h, xfmr_weights.layer_weights[i].ffn_norm), xfmr_weights.layer_weights[i])
+  logits = jnp.dot(rms_norm(h, xfmr_weights.norm), xfmr_weights.output.T)
+  return logits, kvcache, scores, attn_stats
+
+```
+
+
+--------------------------------------------------
+
+File: tokenizer.py
+Content:
+```
+import os
+from logging import getLogger
+from pathlib import Path
+from typing import (
+  AbstractSet,
+  cast,
+  Collection,
+  Dict,
+  Iterator,
+  List,
+  Literal,
+  Optional,
+  Sequence,
+  Union,
+)
+
+import tiktoken
+
+from tiktoken.load import load_tiktoken_bpe
+
+logger = getLogger(__name__)
+
+
+# The tiktoken tokenizer can handle <=400k chars without
+# pyo3_runtime.PanicException.
+TIKTOKEN_MAX_ENCODE_CHARS = 400_000
+
+# https://github.com/openai/tiktoken/issues/195
+# Here we iterate over subsequences and split if we exceed the limit
+# of max consecutive non-whitespace or whitespace characters.
+MAX_NO_WHITESPACES_CHARS = 25_000
+
+
+class Tokenizer:
+  """
+  Tokenizing and encoding/decoding text using the Tiktoken tokenizer.
+  """
+
+  special_tokens: Dict[str, int]
+
+  num_reserved_special_tokens = 256
+
+  pat_str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"  # noqa: E501
+
+  def __init__(self, model_path: str):
+    """
+    Initializes the Tokenizer with a Tiktoken model.
+
+    Args:
+        model_path (str): The path to the Tiktoken model file.
+    """
+    assert os.path.isfile(model_path), model_path
+
+    mergeable_ranks = load_tiktoken_bpe(model_path)
+    num_base_tokens = len(mergeable_ranks)
+    special_tokens = [
+      '<|begin_of_text|>',
+      '<|end_of_text|>',
+      '<|reserved_special_token_0|>',
+      '<|reserved_special_token_1|>',
+      '<|finetune_right_pad_id|>',
+      '<|step_id|>',
+      '<|start_header_id|>',
+      '<|end_header_id|>',
+      '<|eom_id|>',  # end of message
+      '<|eot_id|>',  # end of turn
+      '<|python_tag|>',
+    ]
+    reserved_tokens = [
+      f'<|reserved_special_token_{2 + i}|>'
+      for i in range(self.num_reserved_special_tokens - len(special_tokens))
+    ]
+    special_tokens = special_tokens + reserved_tokens
+
+    self.special_tokens = {token: num_base_tokens + i for i, token in enumerate(special_tokens)}
+    self.model = tiktoken.Encoding(
+      name=Path(model_path).name,
+      pat_str=self.pat_str,
+      mergeable_ranks=mergeable_ranks,
+      special_tokens=self.special_tokens,
+    )
+
+    self.n_words: int = num_base_tokens + len(special_tokens)
+    # BOS / EOS token IDs
+    self.bos_id: int = self.special_tokens['<|begin_of_text|>']
+    self.eos_id: int = self.special_tokens['<|end_of_text|>']
+    self.eot_id: int = self.special_tokens['<|eot_id|>']
+    self.eom_id: int = self.special_tokens['<|eom_id|>']
+    self.python_tag_id = self.special_tokens['<|python_tag|>']
+    self.pad_id: int = self.special_tokens['<|finetune_right_pad_id|>']
+    self.stop_tokens = [
+      self.special_tokens['<|eom_id|>'],
+      self.special_tokens['<|eot_id|>'],
+    ]
+
+  def encode(
+    self,
+    s: str,
+    *,
+    bos: bool,
+    eos: bool,
+    allowed_special: Optional[Union[Literal['all'], AbstractSet[str]]] = None,
+    disallowed_special: Union[Literal['all'], Collection[str]] = (),
+  ) -> List[int]:
+    """
+    Encodes a string into a list of token IDs.
+
+    Args:
+        s (str): The input string to be encoded.
+        bos (bool): Whether to prepend the beginning-of-sequence token.
+        eos (bool): Whether to append the end-of-sequence token.
+        allowed_tokens ("all"|set[str]): allowed special tokens in string
+        disallowed_tokens ("all"|set[str]): special tokens that raise an error when in string
+
+    Returns:
+        list[int]: A list of token IDs.
+
+    By default, setting disallowed_special=() encodes a string by ignoring
+    special tokens. Specifically:
+    - Setting `disallowed_special` to () will cause all text corresponding
+      to special tokens to be encoded as natural text (insteading of raising
+      an error).
+    - Setting `allowed_special` to "all" will treat all text corresponding
+      to special tokens to be encoded as special tokens.
+    """
+    if allowed_special is None:
+      allowed_special = set()
+    assert isinstance(s, str)
+
+    substrs = (
+      substr
+      for i in range(0, len(s), TIKTOKEN_MAX_ENCODE_CHARS)
+      for substr in self._split_whitespaces_or_nonwhitespaces(
+        s[i : i + TIKTOKEN_MAX_ENCODE_CHARS], MAX_NO_WHITESPACES_CHARS
+      )
+    )
+    t: List[int] = []
+    for substr in substrs:
+      t.extend(
+        self.model.encode(
+          substr,
+          allowed_special=allowed_special,
+          disallowed_special=disallowed_special,
+        )
+      )
+    if bos:
+      t.insert(0, self.bos_id)
+    if eos:
+      t.append(self.eos_id)
+    return t
+
+  def decode(self, t: Sequence[int]) -> str:
+    """
+    Decodes a list of token IDs into a string.
+
+    Args:
+        t (List[int]): The list of token IDs to be decoded.
+
+    Returns:
+        str: The decoded string.
+    """
+    # Typecast is safe here. Tiktoken doesn't do anything list-related with the sequence.
+    return self.model.decode(cast(List[int], t))
+
+  @staticmethod
+  def _split_whitespaces_or_nonwhitespaces(s: str, max_consecutive_slice_len: int) -> Iterator[str]:
+    """
+    Splits the string `s` so that each substring contains no more than `max_consecutive_slice_len`
+    consecutive whitespaces or consecutive non-whitespaces.
+    """
+    current_slice_len = 0
+    current_slice_is_space = s[0].isspace() if len(s) > 0 else False
+    slice_start = 0
+
+    for i in range(len(s)):
+      is_now_space = s[i].isspace()
+
+      if current_slice_is_space ^ is_now_space:
+        current_slice_len = 1
+        current_slice_is_space = is_now_space
+      else:
+        current_slice_len += 1
+        if current_slice_len > max_consecutive_slice_len:
+          yield s[slice_start:i]
+          slice_start = i
+          current_slice_len = 1
+    yield s[slice_start:]
+
+```
+
+
+--------------------------------------------------
+
+File: torch_main.py
+Content:
+```
+from typing import NamedTuple, Optional, Tuple
+
+import torch
+import torch.nn.functional as F
+
+import math
+import tyro
+
+from pathlib import Path
+from functools import partial
+
+from entropix.config import LLAMA_1B_PARAMS
+from entropix.tokenizer import Tokenizer
+from entropix.torch_kvcache import KVCache
+from entropix.torch_model import xfmr
+from entropix.torch_weights import XfmrWeights, LayerWeights, load_weights
+from entropix.torch_sampler import sample
+from entropix.prompts import prompt, bp1
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+print(f"Using device: {device}")
+
+torch.set_float32_matmul_precision('high')
+
+def apply_scaling(freqs: torch.Tensor) -> torch.Tensor:
+    SCALE_FACTOR = 8.0
+    LOW_FREQ_FACTOR = 1.0
+    HIGH_FREQ_FACTOR = 4.0
+    OLD_CONTEXT_LEN = 8192  # original llama3 length
+
+    low_freq_wavelen = OLD_CONTEXT_LEN / LOW_FREQ_FACTOR
+    high_freq_wavelen = OLD_CONTEXT_LEN / HIGH_FREQ_FACTOR
+
+    def scale_freq(freq: torch.Tensor) -> torch.Tensor:
+        wavelen = 2 * torch.pi / freq
+
+        # Calculate smooth factor
+        smooth = (OLD_CONTEXT_LEN / wavelen - LOW_FREQ_FACTOR) / (HIGH_FREQ_FACTOR - LOW_FREQ_FACTOR)
+        smooth = torch.clamp(smooth, 0.0, 1.0)  # Ensure smooth is between 0 and 1
+
+        # Calculate scaled frequency
+        scaled = (1 - smooth) * freq / SCALE_FACTOR + smooth * freq
+
+        # Apply conditional scaling
+        scaled = torch.where(
+            wavelen < high_freq_wavelen,
+            freq,  # No scaling
+            torch.where(
+                wavelen > low_freq_wavelen,
+                freq / SCALE_FACTOR,  # Apply scaling factor
+                scaled  # Apply smooth scaling
+            )
+        )
+        return scaled
+
+    scaled_freqs = torch.vmap(scale_freq)(freqs)
+    
+    return scaled_freqs
+
+def precompute_freqs_cis(dim: int, end: int, theta: float = 500000.0, use_scaled: bool = False, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=dtype, device=device)[: (dim // 2)] / dim))
+    if use_scaled:
+        freqs = apply_scaling(freqs)
+
+    t = torch.arange(end, dtype=dtype, device=device).unsqueeze(1)  # Shape: (end, 1)
+    freqs = freqs.unsqueeze(0)  # Shape: (1, dim//2)
+    freqs = t * freqs  # Broadcasting to shape: (end, dim//2)
+    return torch.exp(1j * freqs)
+
+
+
+def build_attn_mask(seqlen: int, start_pos: int) -> torch.Tensor:
+  mask = None
+  if seqlen > 1:
+      mask = torch.full((seqlen, seqlen), float("-inf"))
+      mask = torch.triu(mask, diagonal=1)
+      mask = torch.hstack([torch.zeros((seqlen, start_pos)), mask]).to(torch.float32).to(device)
+  return mask
+
+
+
+def main():
+  with torch.inference_mode():
+    model_params = LLAMA_1B_PARAMS
+    xfmr_weights = load_weights()
+
+    tokenizer = Tokenizer('entropix/tokenizer.model')
+    raw_tokens1 = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
+    #this is not used in this script, but can be used to generate base_raw_tokens1
+    base_raw_tokens1 = tokenizer.encode(bp1, bos=True, eos=False, allowed_special='all')
+
+
+    def generate(xfmr_weights, model_params, tokens):
+      gen_tokens = None
+      cur_pos = 0
+      tokens = torch.tensor([tokens], dtype=torch.long).to(device)
+      bsz, seqlen = tokens.shape
+      attn_mask = build_attn_mask(seqlen, cur_pos)
+      freqs_cis = precompute_freqs_cis(model_params.head_dim, model_params.max_seq_len, model_params.rope_theta, model_params.use_scaled_rope)
+      kvcache = KVCache.new(model_params.n_layers, bsz, model_params.max_seq_len, model_params.n_local_kv_heads, model_params.head_dim).to(DEVICE)
+      logits, kvcache, _, _ = xfmr(xfmr_weights, model_params, tokens, cur_pos, freqs_cis[:seqlen], kvcache, attn_mask=attn_mask)
+      next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True).to(torch.int32)
+      gen_tokens = next_token
+      print(tokenizer.decode([next_token.item()]), end='', flush=True)
+      cur_pos = seqlen
+      stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
+      while cur_pos < 8192:
+        cur_pos += 1
+        logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
+        next_token = sample(gen_tokens, logits, scores)
+        gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
+        print(tokenizer.decode(next_token.tolist()[0]), end='', flush=True)
+        if torch.isin(next_token, stop).any():
+          break
+
+    print(prompt)
+    generate(xfmr_weights, model_params, raw_tokens1)
+
+if __name__ == '__main__':
+  tyro.cli(main)
+```
+
+
+--------------------------------------------------
+
+File: torch_sampler.py
+Content:
+```
+import torch
+import torch.nn.functional as F
+from typing import Tuple, Dict
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+LN_2 = 0.69314718056  # ln(2) = 1.0 / LOG2_E
+
+def calculate_varentropy_logsoftmax(logits: torch.Tensor, axis: int = -1) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Calculate the entropy and varentropy of the probability distribution using logsoftmax."""
+    log_probs = F.log_softmax(logits, dim=axis)
+    probs = torch.exp(log_probs)
+    entropy = -torch.sum(probs * log_probs, dim=axis) / LN_2  # Convert to base-2
+    varentropy = torch.sum(probs * (log_probs / LN_2 + entropy.unsqueeze(-1))**2, dim=axis)
+    return entropy, varentropy
+
+def multinomial_sample_one(probs_sort: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
+    """Samples one token from a multinomial distribution with sorted probabilities."""
+    # Use torch.rand instead of Exponential distribution
+    q = torch.rand(probs_sort.shape, generator=generator, device=probs_sort.device)
+    return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(torch.int32)
+
+def _sample(logits: torch.Tensor, temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, generator: torch.Generator = None) -> torch.Tensor:
+    bsz = logits.shape[0]
+    logit = logits[:, -1]
+    probs = F.softmax(logit / temperature, dim=-1)
+
+    # Apply min_p sampling
+    if min_p > 0.0:
+        p_max = torch.max(probs, dim=-1, keepdim=True).values
+        indices_to_remove = probs < (min_p * p_max)
+        logit = torch.where(indices_to_remove, torch.full_like(logit, float('-inf')), logit)
+
+    # Apply top-k sampling
+    top_k_probs, top_k_indices = torch.topk(probs, k=min(top_k, probs.shape[-1]))
+    probs_sort = torch.flip(top_k_probs, dims=[-1])
+    probs_idx = torch.flip(top_k_indices, dims=[-1])
+    probs_sum = torch.cumsum(probs_sort, dim=-1)
+    # Apply top-p sampling
+    mask = torch.where(probs_sum - probs_sort > top_p, torch.tensor(1.0, device=device), torch.tensor(0.0, device=device))
+    probs_sort = probs_sort * (1 - mask)
+    probs_sort = probs_sort / torch.sum(probs_sort, dim=-1, keepdim=True)
+    next_token = multinomial_sample_one(probs_sort, generator)
+    # Convert next_token to int64 before using it in gather
+    next_token_g = torch.gather(probs_idx, -1, next_token.reshape(bsz, 1).to(torch.int64))
+    return next_token_g.to(torch.int32)
+
+def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> Dict[str, torch.Tensor]:
+    entropy, varentropy = calculate_varentropy_logsoftmax(logits)
+    attention_probs = F.softmax(attention_scores, dim=-1)
+    attn_entropy = -torch.sum(attention_probs * torch.log2(torch.clamp(attention_probs, 1e-10, 1.0)), dim=-1)
+    attn_varentropy = torch.var(attn_entropy, dim=-1)
+    
+    # Add a small epsilon to avoid NaN when all values are the same
+    attn_varentropy = torch.where(torch.isnan(attn_varentropy), torch.zeros_like(attn_varentropy), attn_varentropy)
+    mean_attention = torch.mean(attention_probs, dim=1)
+    agreement = torch.mean(torch.abs(attention_probs - mean_attention.unsqueeze(1)), dim=(1, 2))
+
+    interaction_strength = torch.mean(torch.abs(attention_scores), dim=(1, 2, 3))
+
+    return {
+        "logits_entropy": torch.mean(entropy),
+        "logits_varentropy": torch.mean(varentropy),
+        "attn_entropy": torch.mean(attn_entropy),
+        "attn_varentropy": torch.mean(attn_varentropy),
+        "agreement": torch.mean(agreement),
+        "interaction_strength": interaction_strength
+    }
+
+def adaptive_sample(logits: torch.Tensor, metrics: Dict[str, torch.Tensor],
+                    gen_tokens: torch.Tensor, n_samples: int,
+                    base_temp: float = 0.666, base_top_p: float = 0.90, base_top_k: int = 40, base_min_p: float = 0.03,
+                    generator: torch.Generator = None) -> torch.Tensor:
+    logits_uncertainty = metrics["logits_entropy"] + metrics["logits_varentropy"]
+    attn_uncertainty = metrics["attn_entropy"] + metrics["attn_varentropy"]
+
+    temperature = base_temp * (1 + 0.3 * logits_uncertainty + 0.2 * attn_uncertainty - 0.2 * metrics["agreement"])
+    top_p = torch.clamp(base_top_p * (1 + 0.1 * metrics["attn_varentropy"]), 0.1, 1.0)
+    top_k = int(torch.clamp(
+        torch.round(torch.tensor(base_top_k) * (1 + 0.3 * metrics["interaction_strength"].item() - 0.2 * metrics["agreement"].item())),
+        min=1,
+        max=100
+    ).item())
+    min_p = torch.clamp(base_min_p * (1 - 0.5 * logits_uncertainty), 0.01, 0.5)
+
+    samples = []
+    for _ in range(n_samples):
+        sample = _sample(logits, temperature=temperature, top_p=top_p, top_k=top_k, min_p=min_p, generator=generator)
+        samples.append(sample)
+
+    def score_sample(sample):
+        # Flatten the sample tensor and convert to long (int64)
+        sample_flat = sample.flatten().to(torch.long)
+        
+        # Create one-hot encoding
+        one_hot = F.one_hot(sample_flat, logits.shape[-1])
+        
+        # Reshape log_softmax output to match one_hot
+        log_probs = F.log_softmax(logits, dim=-1).view(-1, logits.shape[-1])
+        
+        # Calculate log probability
+        log_prob = torch.sum(log_probs * one_hot)
+        
+        confidence_score = (
+            (1 - metrics["logits_entropy"]) * 0.1 +
+            (1 - metrics["attn_entropy"]) * 0.2 +
+            (1 - metrics["logits_varentropy"]) * 0.3 +
+            (1 - metrics["attn_varentropy"]) * 0.4 +
+            metrics["agreement"] * 0.5 +
+            metrics["interaction_strength"] * 0.6
+        )
+        return log_prob + confidence_score
+
+    sample_scores = torch.stack([score_sample(sample) for sample in samples])
+    best_sample_idx = torch.argmax(sample_scores)
+    return samples[best_sample_idx]
+
+def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: torch.Tensor,
+           temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 
+           generator: torch.Generator = torch.Generator(device=device).manual_seed(1337)) -> torch.Tensor:
+    metrics = calculate_metrics(logits, attention_scores)
+    ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
+    attn_ent, attn_vent = metrics["attn_entropy"], metrics["attn_varentropy"]
+    agreement = metrics["agreement"]
+    interaction_strength = metrics["interaction_strength"]
+
+    # Low Entropy, Low Varentropy: "flowing with unspoken intent"
+    if ent < 0.1 and vent < 0.1:
+        return torch.argmax(logits[:, -1], dim=-1, keepdim=True).to(torch.int32)
+
+    # High Entropy, Low Varentropy: "treading carefully, asking clarifying questions"
+    elif ent > 3.0 and vent < 0.1:
+        # Insert a clarifying question token if not already present
+        if not torch.isin(gen_tokens[:,-1], torch.tensor([2564], device=device)).any():
+            return torch.tensor([[2564]], dtype=torch.int32, device=device)  # Assuming 2564 is our "ask clarifying question" token
+        else:
+            # If we've just asked a question, sample with slightly higher temperature
+            temp_adj = 1.3 + 0.2 * attn_ent  # Increase temperature based on attention entropy
+            return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k, min_p=min_p, generator=generator)
+
+    # Low Entropy, High Varentropy: "exploring forks in the path"
+    elif ent < 5.0 and vent > 5.0:
+        temp_adj = 1.2 + 0.3 * interaction_strength  # Increase temperature based on interaction strength
+        top_k_adj = max(5, int(top_k * (1 + 0.5 * (1 - agreement))))  # Increase top_k when agreement is low
+        return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k_adj, min_p=min_p, generator=generator)
+
+    # High Entropy, High Varentropy: "resampling in the mist"
+    elif ent > 5.0 and vent > 5.0:
+        # Use high temperature and adjusted top_p based on attention metrics
+        temp_adj = 2.0 + 0.5 * attn_vent  # Increase temperature based on attention varentropy
+        top_p_adj = max(0.5, top_p - 0.2 * attn_ent)  # Decrease top_p when attention entropy is high
+        return _sample(logits, temperature=max(2.0, temperature * temp_adj), top_p=top_p_adj, top_k=top_k, min_p=min_p, generator=generator)
+
+    # Middle ground: use adaptive sampling
+    else:
+        return adaptive_sample(
+            logits,
+            metrics,
+            gen_tokens,
+            n_samples=5,
+            base_temp=temperature,
+            base_top_p=top_p,
+            base_top_k=top_k,
+            generator=generator
+        )
+```
+
+
+--------------------------------------------------
+
+File: torch_weights.py
+Content:
+```
+from typing import List, NamedTuple
+
+
+import torch
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+import ml_dtypes
+
+from pathlib import Path
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+#print(f"Using device: {device}")
+
+class LayerWeights(NamedTuple):
+  wq: torch.Tensor
+  wk: torch.Tensor
+  wv: torch.Tensor
+  wo: torch.Tensor
+  w1: torch.Tensor
+  w2: torch.Tensor
+  w3: torch.Tensor
+  ffn_norm: torch.Tensor
+  attention_norm: torch.Tensor
+
+class XfmrWeights(NamedTuple):
+  tok_embeddings: torch.Tensor
+  norm: torch.Tensor
+  output: torch.Tensor
+  layer_weights: List[LayerWeights]
+
+def compare_outputs(torch_output: torch.Tensor, jax_output: jax.Array, atol: float = 1e-5, rtol: float = 1e-8) -> None:
+  jax_output_np = np.array(jax_output)
+  torch_output_np = torch_output.cpu().view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
+
+  try:
+    np.testing.assert_allclose(torch_output_np, jax_output_np, atol=atol, rtol=rtol)
+  except AssertionError as e:
+    print(f'JAX output (first 30): {jax_output_np.flatten()[:30]}')
+    print(f'PyTorch output (first 30): {torch_output_np.flatten()[:30]}')
+    raise e
+
+def load_weights(ckpt_dir: Path = Path('weights/1B-Instruct'), n_layers: int = 16):
+  w = {}
+  layer_weights = []
+  with torch.inference_mode():
+    for file in ckpt_dir.glob("*.npy"):
+      name = '.'.join(str(file).split('/')[-1].split('.')[:-1])
+      jax_weight = jnp.load(file=file, mmap_mode='r', allow_pickle=True)
+      #print(f'JAX output (first 30): {jax_weight.flatten()[:30]}')
+      np_weight = np.array(jax_weight).astype(np.float32)
+      weight = torch.from_numpy(np_weight).to(torch.bfloat16).to(device)
+      compare_outputs(torch_output=weight, jax_output=jax_weight)
+      w[name] = weight.to(device)
+    for i in range(n_layers):
+      layer_weights.append(LayerWeights(
+        wq=w[f'layers.{i}.attention.wq.weight'],
+        wk=w[f'layers.{i}.attention.wk.weight'],
+        wv=w[f'layers.{i}.attention.wv.weight'],
+        wo=w[f'layers.{i}.attention.wo.weight'],
+        w1=w[f'layers.{i}.feed_forward.w1.weight'],
+        w2=w[f'layers.{i}.feed_forward.w2.weight'],
+        w3=w[f'layers.{i}.feed_forward.w3.weight'],
+        ffn_norm=w[f'layers.{i}.ffn_norm.weight'],
+        attention_norm=w[f'layers.{i}.attention_norm.weight'],
+      ))
+
+    xfmr_weights = XfmrWeights(
+      tok_embeddings=w['tok_embeddings.weight'],
+      norm=w['norm.weight'],
+      output=w['output.weight'],
+      layer_weights=layer_weights
+    )
+
+    return xfmr_weights
+```
+
+
+--------------------------------------------------
+
+File: stats.py
+Content:
+```
+from typing import NamedTuple
+import jax
+import jax.numpy as jnp
+
+class AttnStats(NamedTuple):
+  entropy: jax.Array  # (bsz, n_layers, num_heads)
+  varentropy: jax.Array  # (bsz, n_layers, num_heads)
+  n_layers: int
+  n_heads: int
+
+  @classmethod
+  def new(cls, bsz: int, n_layers: int, n_heads: int) -> 'AttnStats':
+    return cls(
+        entropy=jnp.zeros((bsz, n_layers, n_heads), dtype=jnp.float32),
+        varentropy=jnp.zeros((bsz, n_layers, n_heads), dtype=jnp.float32),
+        n_layers=n_layers,
+        n_heads=n_heads
+    )
+
+  @property
+  def avg_entropy(self):
+    return self.entropy.sum(axis=-1, keepdims=False)  # Average across heads
+
+  @property
+  def std_error(self):
+    return jnp.sqrt(jnp.mean(self.varentropy)) / (self.n_heads * self.n_layers)
+
+  def update(self, scores: jax.Array, layer_idx: int):
+    # scores shape: (bsz, n_heads, seqlen, n_words)
+    probs = jax.nn.softmax(scores, axis=-1)
+    new_entropy = -jnp.sum(jnp.where(probs > 0, probs * jnp.log(probs), 0), axis=-1)
+    new_varentropy = jnp.sum(probs * (jnp.log(probs) + new_entropy[..., None])**2, axis=-1)
+
+    # print(f"Layer {layer_idx} - Scores shape: {scores.shape}, Probs shape: {probs.shape}")
+    # print(f"Layer {layer_idx} - New entropy shape: {new_entropy.shape}, Min: {jnp.min(new_entropy)}, Max: {jnp.max(new_entropy)}")
+
+    updated_stats = self._replace(
+        entropy=self.entropy.at[:, layer_idx, :].set(new_entropy),
+        varentropy=self.varentropy.at[:, layer_idx, :].set(new_varentropy)
+    )
+
+    # print(f"Layer {layer_idx} - Updated entropy shape: {updated_stats.entropy.shape}")
+    # print(f"Layer {layer_idx} - Updated entropy for this layer: {updated_stats.entropy[:, layer_idx, :]}")
+
+    return updated_stats
+```
+
+
+--------------------------------------------------
+
+File: main.py
+Content:
+```
+import math
+from pathlib import Path
+
+import jax
+import jax.numpy as jnp
+import tyro
+
+from entropix.config import LLAMA_1B_PARAMS
+from entropix.kvcache import KVCache
+from entropix.model import xfmr
+from entropix.sampler import SamplerConfig, sample
+from entropix.prompts import create_prompts_from_csv, prompt
+from entropix.sampler import sample
+from entropix.tokenizer import Tokenizer
+from entropix.weights import load_weights
+
+DEFAULT_WEIGHTS_PATH = Path(__file__).parent / '../weights'
+
+def apply_scaling(freqs: jax.Array):
+  SCALE_FACTOR = 8
+  LOW_FREQ_FACTOR = 1
+  HIGH_FREQ_FACTOR = 4
+  OLD_CONTEXT_LEN = 8192  # original llama3 length
+
+  low_freq_wavelen = OLD_CONTEXT_LEN / LOW_FREQ_FACTOR
+  high_freq_wavelen = OLD_CONTEXT_LEN / HIGH_FREQ_FACTOR
+
+  def scale_freq(freq):
+    wavelen = 2 * math.pi / freq
+
+    def scale_mid(_):
+      smooth = (OLD_CONTEXT_LEN / wavelen - LOW_FREQ_FACTOR) / (HIGH_FREQ_FACTOR - LOW_FREQ_FACTOR)
+      return (1 - smooth) * freq / SCALE_FACTOR + smooth * freq
+
+    return jax.lax.cond(
+      wavelen < high_freq_wavelen,
+      lambda _: freq,
+      lambda _: jax.lax.cond(wavelen > low_freq_wavelen, lambda _: freq / SCALE_FACTOR, scale_mid, None),
+      None
+    )
+
+  return jax.vmap(scale_freq)(freqs)
+
+
+def precompute_freqs_cis(dim: int, end: int, theta: float = 500000.0, use_scaled: bool = False, dtype: jnp.dtype = jnp.float32) -> jax.Array:
+  freqs = 1.0 / (theta ** (jnp.arange(0, dim, 2)[: (dim // 2)].astype(dtype) / dim))
+  if use_scaled:
+    freqs = apply_scaling(freqs)
+  t = jnp.arange(end, dtype=dtype)
+  freqs = jnp.outer(t, freqs)
+  return jnp.exp(1j * freqs)
+
+
+def build_attn_mask(seqlen: int, start_pos: int) -> jax.Array:
+  mask = jnp.zeros((seqlen, seqlen), dtype=jnp.float32)
+  if seqlen > 1:
+    mask = jnp.full((seqlen, seqlen), float('-inf'))
+    mask = jnp.triu(mask, k=1)
+    mask = jnp.hstack([jnp.zeros((seqlen, start_pos)), mask], dtype=jnp.float32)
+  return mask
+
+
+def main(weights_path: Path = DEFAULT_WEIGHTS_PATH.joinpath('1B-Instruct')):
+  model_params = LLAMA_1B_PARAMS
+  xfmr_weights = load_weights(weights_path.absolute())
+  tokenizer = Tokenizer('entropix/tokenizer.model')
+
+  # Create the batch of tokens
+  def generate(xfmr_weights, model_params, tokens):
+    gen_tokens = None
+    cur_pos = 0
+    tokens = jnp.array([tokens], jnp.int32)
+    bsz, seqlen = tokens.shape
+    attn_mask = build_attn_mask(seqlen, cur_pos)
+    freqs_cis = precompute_freqs_cis(model_params.head_dim, model_params.max_seq_len, model_params.rope_theta, model_params.use_scaled_rope)
+    kvcache = KVCache.new(model_params.n_layers, bsz, model_params.max_seq_len, model_params.n_local_kv_heads, model_params.head_dim)
+    logits, kvcache, _, _ = xfmr(xfmr_weights, model_params, tokens, cur_pos, freqs_cis[:seqlen], kvcache, attn_mask=attn_mask)
+    next_token = jnp.argmax(logits[:, -1], axis=-1, keepdims=True).astype(jnp.int32)
+    gen_tokens = next_token
+    print(tokenizer.decode([next_token.item()]), end='', flush=True)
+    cur_pos = seqlen
+    stop = jnp.array([128001, 128008, 128009])
+    sampler_cfg = SamplerConfig()
+    while cur_pos < 8192:
+      cur_pos += 1
+      logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
+      next_token = sample(gen_tokens, logits, scores, cfg=sampler_cfg)
+      gen_tokens = jnp.concatenate((gen_tokens, next_token))
+      print(tokenizer.decode(next_token.tolist()[0]), end='', flush=True)
+      if jnp.isin(next_token, stop).any():
+        break
+
+  csv_path = Path('entropix/data/prompts.csv')
+  prompts = create_prompts_from_csv(csv_path)
+  PROMPT_TEST = False
+
+  if PROMPT_TEST:
+    for p in prompts:
+      print(p)
+      tokens = tokenizer.encode(p,  bos=False, eos=False, allowed_special='all')
+      generate(xfmr_weights, model_params, tokens)
+  else:
+    print(prompt)
+    tokens = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
+    generate(xfmr_weights, model_params, tokens)
+
+if __name__ == '__main__':
+  tyro.cli(main)
+
+```
+
+
+--------------------------------------------------
+
+File: sampler.py
+Content:
+```
+from typing import Dict, Tuple
+
+import chex
+import jax
+import jax.numpy as jnp
+
+LN_2 = 0.69314718056  # ln(2) = 1.0 / LOG2_E
+
+@jax.jit
+def calculate_varentropy_logsoftmax(logits: jnp.ndarray, axis: int = -1) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Calculate the entropy and varentropy of the probability distribution using logsoftmax."""
+    log_probs = jax.nn.log_softmax(logits, axis=axis)
+    probs = jnp.exp(log_probs)
+    entropy = -jnp.sum(probs * log_probs, axis=axis) / LN_2  # Convert to base-2
+    varentropy = jnp.sum(probs * (log_probs / LN_2 + entropy[..., None])**2, axis=axis)
+    return entropy, varentropy
+
+def multinomial_sample_one(probs_sort: jax.Array, key) -> jax.Array:
+    """Samples one token from a multinomial distribution with sorted probabilities."""
+    q = jax.random.exponential(key=key, shape=probs_sort.shape)
+    return jnp.argmax(probs_sort / q, axis=-1, keepdims=True).astype(jnp.int32)
+
+def _sample( logits: jax.Array, *, temperature: float | jax.Array, top_p: float | jax.Array, top_k: int | jax.Array, min_p: float | jax.Array,
+            key=jax.random.PRNGKey(1337),) -> jax.Array:
+    bsz = logits.shape[0]
+    logit = logits[:, -1]
+    probs = jax.nn.softmax(logit / temperature, axis=-1)
+
+    # Apply min_p sampling
+    if min_p > 0.0:
+      p_max = jnp.max(probs, axis=-1, keepdims=True)
+      indices_to_remove = probs < (min_p * p_max)
+      logit = jnp.where(indices_to_remove, jnp.full_like(logit, float('-inf')), logit)
+
+    # Apply top-k sampling
+    top_k_probs, top_k_indices = jax.lax.top_k(probs, k=top_k)
+    probs_sort = jnp.flip(top_k_probs, axis=-1)
+    probs_idx = jnp.flip(top_k_indices, axis=-1)
+    probs_sum = jnp.cumsum(probs_sort, axis=-1)
+    # Apply top-p sampling
+    mask = jnp.where(probs_sum - probs_sort > top_p, 1.0, 0.0)
+    probs_sort = probs_sort * (1 - mask)
+    probs_sort = probs_sort / jnp.sum(probs_sort, axis=-1, keepdims=True)
+    next_token = multinomial_sample_one(probs_sort, key)
+    next_token_g = jnp.take_along_axis(probs_idx, next_token.reshape(bsz, 1), axis=-1)
+    return next_token_g.astype(jnp.int32)
+
+def calculate_metrics(logits: jnp.ndarray, attention_scores: jnp.ndarray) -> Dict[str, jnp.ndarray]:
+    entropy, varentropy = calculate_varentropy_logsoftmax(logits)
+
+    attention_probs = jax.nn.softmax(attention_scores, axis=-1)
+    attn_entropy = -jnp.sum(attention_probs * jnp.log2(jnp.clip(attention_probs, 1e-10, 1.0)), axis=-1)
+    attn_varentropy = jnp.var(attn_entropy, axis=1)
+
+    mean_attention = jnp.mean(attention_probs, axis=1)
+    agreement = jnp.mean(jnp.abs(attention_probs - mean_attention[:, None, :]), axis=(1, 2))
+
+    interaction_strength = jnp.mean(jnp.abs(attention_scores), axis=(1, 2, 3))
+
+    return {
+        "logits_entropy": jnp.mean(entropy),
+        "logits_varentropy": jnp.mean(varentropy),
+        "attn_entropy": jnp.mean(attn_entropy),
+        "attn_varentropy": jnp.mean(attn_varentropy),
+        "agreement": jnp.mean(agreement),
+        "interaction_strength": interaction_strength
+    }
+
+@chex.dataclass(kw_only=True, frozen=True)
+class SamplerConfig:
+    """
+    Encapsulation of all available sampler hyperparameters.
+
+    This should be a good starting point for baselining experiments.
+    """
+
+    temp: float = 0.666
+    top_p: float = 0.90
+    top_k: int = 27
+    min_p: float = 0.03  # Turn this down to 0.01 to reduce the shoggoth
+
+    low_ent_thresh: float = 0.1
+    low_vent_thresh: float = 0.1
+    med_ent_thresh: float = 3.0
+    high_ent_thresh: float = 5.0
+    high_vent_thresh: float = 5.0
+
+    # TODO this is a bit of a nasty mess, but also makes all the hyperparameters visible
+    helv_attn_ent_offset: float = 1.3
+    helv_attn_ent_coef: float = 0.2
+
+    lehv_interaction_strength_offset: float = 1.2
+    lehv_interaction_strength_coef: float = 0.3
+
+    hehv_attn_ent_coef: float = 0.2
+    hehv_attn_vent_offset: float = 2.0
+    hehv_attn_vent_coef: float = 0.5
+
+    # TODO not convinced this should
+    n_adaptive_samples: int = 5
+
+    # Adaptive sampling parameters
+    ada_temp_logits: float = 0.3
+    ada_temp_attn: float = 0.2
+    ada_temp_agree: float = 0.2
+    ada_top_p: float = 0.1
+    ada_top_k_int: float = 0.3
+    ada_top_k_agree: float = 0.2
+    ada_min_p: float = 0.5
+    ada_score_logits_ent: float = 0.1
+    ada_score_attn_ent: float = 0.2
+    ada_score_logits_vent: float = 0.3
+    ada_score_attn_vent: float = 0.4
+    ada_score_agree: float = 0.5
+    ada_score_int: float = 0.6
+
+
+def sample(gen_tokens: jax.Array, logits: jax.Array, attention_scores: jax.Array, cfg: SamplerConfig,
+           clarifying_question_token: int = 2564, key=jax.random.PRNGKey(1337)) -> jax.Array:
+
+    metrics = calculate_metrics(logits, attention_scores)
+    ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
+    attn_ent, attn_vent = metrics["attn_entropy"], metrics["attn_varentropy"]
+    agreement = metrics["agreement"]
+    interaction_strength = metrics["interaction_strength"]
+
+    # Low Entropy, Low Varentropy: "flowing with unspoken intent"
+    if ent < cfg.low_ent_thresh and vent < cfg.low_vent_thresh:
+        return jnp.argmax(logits[:, -1], axis=-1, keepdims=True).astype(jnp.int32)
+
+    # High Entropy, Low Varentropy: "treading carefully, asking clarifying questions"
+    elif ent > cfg.high_ent_thresh and vent < cfg.low_vent_thresh:
+        # Insert a clarifying question token if not already present
+        if not jnp.isin(gen_tokens[:,-1], clarifying_question_token).any():
+            return jnp.array([[clarifying_question_token]])
+        else:
+            # If we've just asked a question, sample with slightly higher temperature
+            temp_adj = cfg.helv_attn_ent_offset + cfg.helv_attn_ent_coef * attn_ent  # Increase temperature based on attention entropy
+            return _sample(logits, temperature=min(1.5, cfg.temp * temp_adj), top_p=cfg.top_p, top_k=cfg.top_k, min_p=cfg.min_p, key=key)
+
+    # Low Entropy, High Varentropy: "exploring forks in the path"
+    elif ent < cfg.high_ent_thresh and vent > cfg.high_vent_thresh:
+        temp_adj = cfg.lehv_interaction_strength_offset + cfg.lehv_interaction_strength_coef * interaction_strength  # Increase temperature based on interaction strength
+        top_k_adj = max(5, int(cfg.top_k * (1 + 0.5 * (1 - agreement))))  # Increase top_k when agreement is low
+        return _sample(logits, temperature=min(1.5, cfg.temp * temp_adj), top_p=cfg.top_p, top_k=top_k_adj, min_p=cfg.min_p, key=key)
+
+    # High Entropy, High Varentropy: "resampling in the mist"
+    elif ent > cfg.med_ent_thresh and vent > cfg.high_vent_thresh:
+        # Use high temperature and adjusted top_p based on attention metrics
+        temp_adj = cfg.hehv_attn_vent_offset + cfg.hehv_attn_vent_coef * attn_vent  # Increase temperature based on attention varentropy
+        top_p_adj = max(0.5, cfg.top_p - cfg.hehv_attn_ent_coef * attn_ent)  # Decrease top_p when attention entropy is high
+        return _sample(logits, temperature=max(2.0, cfg.temp * temp_adj), top_p=top_p_adj, top_k=cfg.top_k, min_p=cfg.min_p, key=key)
+
+    # Middle ground: use adaptive sampling
+    else:
+        logits_uncertainty = metrics["logits_entropy"] + metrics["logits_varentropy"]
+        attn_uncertainty = metrics["attn_entropy"] + metrics["attn_varentropy"]
+
+        temperature = cfg.temp * (1 + cfg.ada_temp_logits * logits_uncertainty + cfg.ada_temp_attn * attn_uncertainty - cfg.ada_temp_agree * metrics["agreement"])
+        top_p = jnp.clip(cfg.top_p * (1 + cfg.ada_top_p * metrics["attn_varentropy"]), 0.1, 1.0)
+        top_k = int(jnp.clip(
+            jnp.round(cfg.top_k * (1 + cfg.ada_top_k_int * metrics["interaction_strength"].item() - cfg.ada_top_k_agree * metrics["agreement"].item())),
+            a_min=1,
+            a_max=100
+        ))
+        min_p = jnp.clip(cfg.min_p * (1 - cfg.ada_min_p * logits_uncertainty), 0.01, 0.5)
+
+        keys = jax.random.split(key, cfg.n_adaptive_samples)
+
+        samples = []
+        for sample_key in keys:
+            sample = _sample(logits, temperature=temperature, top_p=top_p, top_k=top_k, min_p=min_p, key=sample_key)
+            samples.append(sample)
+
+        def score_sample(sample):
+            log_prob = jnp.sum(jax.nn.log_softmax(logits) * jax.nn.one_hot(sample, logits.shape[-1]))
+            confidence_score = (
+                (1 - metrics["logits_entropy"]) * cfg.ada_score_logits_ent +
+                (1 - metrics["attn_entropy"]) * cfg.ada_score_attn_ent +
+                (1 - metrics["logits_varentropy"]) * cfg.ada_score_logits_vent +
+                (1 - metrics["attn_varentropy"]) * cfg.ada_score_attn_vent +
+                metrics["agreement"] * cfg.ada_score_agree +
+                metrics["interaction_strength"] * cfg.ada_score_int
+            )
+            return log_prob + confidence_score
+
+        sample_scores = [score_sample(sample) for sample in samples]
+        best_sample_idx = jnp.argmax(jnp.array(sample_scores))
+        return samples[best_sample_idx]
+
+```
+
+
+--------------------------------------------------
+
+File: torch_stats.py
+Content:
+```
+import torch
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+#print(f"Using device: {device}")
+
+from typing import NamedTuple
+
+class AttnStats(NamedTuple):
+    entropy: torch.Tensor  # (bsz, n_layers, num_heads)
+    varentropy: torch.Tensor  # (bsz, n_layers, num_heads)
+    n_layers: int
+    n_heads: int
+
+    @classmethod
+    def new(cls, bsz: int, n_layers: int, n_heads: int) -> 'AttnStats':
+        return cls(
+            entropy=torch.zeros((bsz, n_layers, n_heads), dtype=torch.float32, device=device),
+            varentropy=torch.zeros((bsz, n_layers, n_heads), dtype=torch.float32, device=device),
+            n_layers=n_layers,
+            n_heads=n_heads
+        )
+
+    @property
+    def avg_entropy(self):
+        return self.entropy.sum(dim=-1, keepdim=False)  # Average across heads
+
+    @property
+    def std_error(self):
+        return torch.sqrt(torch.mean(self.varentropy)) / (self.n_heads * self.n_layers)
+
+    def update(self, scores: torch.Tensor, layer_idx: int):
+        # scores shape: (bsz, n_heads, seqlen, n_words)
+        probs = torch.nn.functional.softmax(scores, dim=-1)
+        new_entropy = -torch.sum(torch.where(probs > 0, probs * torch.log(probs), torch.tensor(0.0)), dim=-1)
+        new_varentropy = torch.sum(probs * (torch.log(probs) + new_entropy.unsqueeze(-1))**2, dim=-1)
+
+        # Update entropy and varentropy tensors
+        self.entropy[:, layer_idx, :] = new_entropy
+        self.varentropy[:, layer_idx, :] = new_varentropy
+
+        return self
+```
+
+
+--------------------------------------------------
+
+File: weights.py
+Content:
+```
+from typing import List, NamedTuple
+
+import jax
+import jax.numpy as jnp
+
+from pathlib import Path
+
+
+class LayerWeights(NamedTuple):
+  wq: jax.Array
+  wk: jax.Array
+  wv: jax.Array
+  wo: jax.Array
+  w1: jax.Array
+  w2: jax.Array
+  w3: jax.Array
+  ffn_norm: jax.Array
+  attention_norm: jax.Array
+
+
+class XfmrWeights(NamedTuple):
+  tok_embeddings: jax.Array
+  norm: jax.Array
+  output: jax.Array
+  layer_weights: List[LayerWeights]
+
+
+def load_weights(ckpt_dir: Path, n_layers: int = 16):
+  w = {}
+  layer_weights = []
+  try:
+    device = jax.devices("gpu")[0]
+  except RuntimeError:
+    print("GPU not found. Using CPU instead.")
+    device = jax.devices("cpu")[0]
+  for file in ckpt_dir.glob("*.npy"):
+    name = '.'.join(str(file).split('/')[-1].split('.')[:-1])
+    weight = jnp.load(file=file, mmap_mode='r', allow_pickle=True)
+    w[name] = jax.device_put(weight, device)
+  for i in range(n_layers):
+    layer_weights.append(LayerWeights(
+      wq=w[f'layers.{i}.attention.wq.weight'],
+      wk=w[f'layers.{i}.attention.wk.weight'],
+      wv=w[f'layers.{i}.attention.wv.weight'],
+      wo=w[f'layers.{i}.attention.wo.weight'],
+      w1=w[f'layers.{i}.feed_forward.w1.weight'],
+      w2=w[f'layers.{i}.feed_forward.w2.weight'],
+      w3=w[f'layers.{i}.feed_forward.w3.weight'],
+      ffn_norm=w[f'layers.{i}.ffn_norm.weight'],
+      attention_norm=w[f'layers.{i}.attention_norm.weight'],
+    ))
+
+  xfmr_weights = XfmrWeights(
+    tok_embeddings=w['tok_embeddings.weight'],
+    norm=w['norm.weight'],
+    output=w['output.weight'],
+    layer_weights=layer_weights
+  )
+
+  return xfmr_weights
+
+```
+
+
+--------------------------------------------------
+
+File: mcts.py
+Content:
+```
+import torch
+import torch.nn.functional as F
+from typing import Tuple
+
+from entropix.torch_main import calculate_varentropy_logsoftmax, _sample
+
+class MCTSSearch:
+    def __init__(self, cxfmr, xfmr_weights, model_params, freqs_cis, kvcache):
+        self.cxfmr = cxfmr
+        self.xfmr_weights = xfmr_weights
+        self.model_params = model_params
+        self.freqs_cis = freqs_cis
+        self.kvcache = kvcache
+        self.max_depth = 6
+        self.n_branches = 5
+
+    def _is_normal_range(self, ent: float, vent: float) -> bool:
+        return ent < 5.0 and vent < 5.0
+
+    def simulate_path(self, token: torch.Tensor, cur_pos: int, depth: int = 0) -> Tuple[torch.Tensor, bool]:
+        if depth >= self.max_depth:
+            return token, False
+
+        next_logits, _ = self.cxfmr(self.xfmr_weights, self.model_params, token.unsqueeze(0), 
+                                    cur_pos + depth + 1, 
+                                    self.freqs_cis[cur_pos + depth + 1:cur_pos + depth + 2], 
+                                    self.kvcache)
+        next_ent, next_vent = calculate_varentropy_logsoftmax(next_logits)
+        
+        if self._is_normal_range(next_ent.item(), next_vent.item()):
+            return token, True
+
+        next_token = _sample(next_logits, temperature=1.0)
+        return self.simulate_path(next_token.squeeze(), cur_pos, depth + 1)
+
+    def search(self, logits: torch.Tensor, cur_pos: int) -> torch.Tensor:
+        # Select initial candidates
+        candidates = []
+        for _ in range(self.n_branches):
+            candidates.append(_sample(logits, temperature=2))
+        
+        for candidate in candidates:
+            # Remove extra dimensions to get a 1D tensor
+            candidate_token = candidate.squeeze()
+            final_token, success = self.simulate_path(candidate_token, cur_pos)
+            if success:
+                return final_token.unsqueeze(0).unsqueeze(0)
+
+        # If no path leads to normal range, return the first candidate
+        return candidates[0]
+```
+
+
+--------------------------------------------------
+
+File: torch_model.py
+Content:
+```
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from entropix.config import ModelParams
+from entropix.torch_kvcache import KVCache
+from entropix.torch_weights import XfmrWeights, LayerWeights
+from entropix.torch_stats import AttnStats
+
+DEFAULT_MASK_VALUE = -0.7 * float(torch.finfo(torch.float32).max)
+
+# Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+#print(f"Using device: {device}")
+
+from typing import Tuple, Optional
+
+def rms_norm(x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+  return w * (x * torch.rsqrt(torch.pow(x, 2).mean(-1, keepdim=True) + eps))
+
+def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor, freqs_cis: torch.Tensor, dtype: torch.dtype = torch.float32) -> Tuple[torch.Tensor, torch.Tensor]:
+    reshape_xq = xq.float().reshape(*xq.shape[:-1], -1, 2)
+    reshape_xk = xk.float().reshape(*xk.shape[:-1], -1, 2)
+    xq_ = torch.complex(reshape_xq[..., 0], reshape_xq[..., 1])
+    xk_ = torch.complex(reshape_xk[..., 0], reshape_xk[..., 1])
+    xq_out = xq_ * freqs_cis.unsqueeze(0).unsqueeze(2)
+    xk_out = xk_ * freqs_cis.unsqueeze(0).unsqueeze(2)
+    xq_out = torch.stack((xq_out.real, xq_out.imag), dim=-1).reshape(*xq_out.shape[:-1], -1)
+    xk_out = torch.stack((xk_out.real, xk_out.imag), dim=-1).reshape(*xk_out.shape[:-1], -1)
+    return xq_out.to(dtype), xk_out.to(dtype)
+
+def attention(x: torch.Tensor, layer_weights: LayerWeights, model_params, cur_pos: int, layer_idx: int, freqs_cis: torch.Tensor, kvcache: KVCache, attn_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, KVCache, torch.Tensor]:
+    bsz, _, _ = x.shape
+    n_rep = model_params.n_local_heads // model_params.n_local_kv_heads
+    xq = F.linear(x, layer_weights.wq).reshape(bsz, -1, model_params.n_local_heads, model_params.head_dim)
+    xk = F.linear(x, layer_weights.wk).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
+    xv = F.linear(x, layer_weights.wv).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
+    xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+    keys, values, kvcache = kvcache.update(xk, xv, layer_idx, cur_pos, n_rep)
+    xq = torch.permute(xq, (0, 2, 1, 3))  # (bs, n_heads, seqlen, head_dim)
+    keys = torch.permute(keys, (0, 2, 3, 1))  # (bs, n_heads, head_dim, cache_len + seqlen)
+    values = torch.permute(values, (0, 2, 1, 3))  # (bs, n_heads, cache_len + seqlen, head_dim)
+    scores = torch.matmul(xq, keys)
+    pre_scores = scores / math.sqrt(model_params.head_dim)
+    scores = pre_scores.to(torch.float32)  # Always do attention softmax at float32
+    if cur_pos == 0:
+        scores = scores + attn_mask
+    mask = torch.where(scores != 0.0, scores, DEFAULT_MASK_VALUE)
+    padded_logits = torch.where((mask >= DEFAULT_MASK_VALUE * 0.5), scores, DEFAULT_MASK_VALUE)
+    scores = F.softmax(padded_logits, dim=-1).to(torch.float32)
+    output = torch.matmul(scores, values)
+    output = output.transpose(1, 2).reshape(xq.shape[0], xq.shape[2], -1)
+    out = F.linear(output, layer_weights.wo)
+    return out, kvcache, pre_scores
+
+def feed_forward(x: torch.Tensor, layer_weights: LayerWeights) -> torch.Tensor:
+ return F.linear(F.silu(F.linear(x, layer_weights.w1)) * F.linear(x, layer_weights.w3), layer_weights.w2)
+
+def xfmr(xfmr_weights: XfmrWeights, model_params: ModelParams, tokens: torch.Tensor, cur_pos: int, freqs_cis: torch.Tensor, kvcache: KVCache, attn_mask: Optional[torch.Tensor]=None) -> Tuple[torch.Tensor, KVCache, torch.Tensor, AttnStats]:
+    h = xfmr_weights.tok_embeddings[tokens]
+    attn_stats = AttnStats.new(
+        bsz=tokens.shape[0],
+        n_layers=model_params.n_layers,
+        n_heads=model_params.n_local_heads
+    )
+    for i in range(model_params.n_layers):
+        norm_x = rms_norm(h, xfmr_weights.layer_weights[i].attention_norm)
+        h_attn, kvcache, scores = attention(norm_x, xfmr_weights.layer_weights[i], model_params, cur_pos, i, freqs_cis, kvcache, attn_mask=attn_mask)
+        attn_stats = attn_stats.update(scores[:,:,-1,:], i)
+        h = h + h_attn
+        h = h + feed_forward(rms_norm(h, xfmr_weights.layer_weights[i].ffn_norm), xfmr_weights.layer_weights[i])
+    logits = F.linear(rms_norm(h, xfmr_weights.norm), xfmr_weights.output)
+    return logits, kvcache, scores, attn_stats
+```
+
+
+--------------------------------------------------
+
+Instructions for analysis:
+1. Examine each file's content and its role in the project.
+2. Analyze the dependencies between files to understand the code flow.
+3. Identify any central or frequently depended-upon files that might be core to the project.
+4. Look for patterns in the file naming and organization that might indicate the project's architecture.
+5. Based on the file contents and dependencies, determine the main functionality of the project.
+6. Suggest any potential areas for improvement in the code organization or dependency structure.
+7. Provide a summary of your findings, including the project's purpose and key features.

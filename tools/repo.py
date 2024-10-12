@@ -693,13 +693,13 @@ def build_commit_evolution_gif_of_repo(repo_url: str, temp_repo: str = "temp_rep
     return img
 
 
-def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 40, output_dir="d2_output", output_file="evolve_graph.gif", fps=2, static_portion: float = 0.2):
+def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 40, tmp_dir="d2_output", output_file="evolve_graph.gif", fps=2, static_portion: float = 0.2):
     
     sub_dag = cap_dag_count(sub_dag, cap_node_number=cap_node_number)
     sub_dag = assign_levels(sub_dag)
     
     # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(tmp_dir, exist_ok=True)
 
     # Generate opacity frames
     opacity_frames = generate_opacity_frames(sub_dag, frame_count, static_portion=static_portion)
@@ -709,8 +709,8 @@ def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 40, output
     for i, frame in enumerate(opacity_frames):
         d2_code = build_d2_from_dag(frame, include_overhead=True)
         png_file = f"evolve_graph_{i}.png"
-        save_png_from_d2(d2_code, f"evolve_graph_{i}", output_dir=output_dir)
-        png_files.append(os.path.join(output_dir, png_file))
+        save_png_from_d2(d2_code, f"evolve_graph_{i}", output_dir=tmp_dir)
+        png_files.append(os.path.join(tmp_dir, png_file))
 
     # Sort PNG files
     png_files = sorted(png_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
@@ -722,7 +722,7 @@ def create_evolution_gif(sub_dag, frame_count, cap_node_number: int = 40, output
     img = Image.open(png_files[-1])
 
     # Clean up temporary PNG files
-    shutil.rmtree(output_dir)
+    shutil.rmtree(tmp_dir)
 
     return img, output_file
 

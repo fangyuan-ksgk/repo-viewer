@@ -203,6 +203,8 @@ def save_png_from_d2(d2_code, file_name, output_dir="d2_output"):
         print("Error: d2 command not found. Make sure d2 is installed and in your PATH.")
         png_file_path = None
     
+    os.remove(d2_file_path)
+    
     return png_file_path
 
 

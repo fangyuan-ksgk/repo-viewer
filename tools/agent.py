@@ -2,6 +2,7 @@ from .interpreter import CodeInterpreter
 from typing import Callable
 from tqdm import tqdm 
 from .repo import *
+from .podcast import *
 
 def strategic_respond(json_file_path: str, 
                       img_base64: str,
@@ -74,9 +75,10 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False):
     
 class RepoAgent: # Pure Text-Based 
     
-    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None):
+    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None, sandbox_dir = "sandbox"):
         self.temp_repo = temp_repo
         self.get_vlm_response = get_vlm_response
+        self.sandbox_dir = sandbox_dir
         file_dag = directory_to_file_dag(temp_repo)
         file_dag = assign_importance_score_to_dag(file_dag)
         file_dag = assign_levels(file_dag)
@@ -89,7 +91,7 @@ class RepoAgent: # Pure Text-Based
         self.module_dag = module_dag
         # self._summarize_code()
         self.module_names = [self.module_dag[k]['name'] for k in self.module_dag]
-        self.module_dag_path = save_dag_as_json(self.module_dag, temp_repo)
+        self.module_dag_path = save_dag_as_json(self.module_dag, temp_repo, self.sandbox_dir)
         
     def _summarize_code(self):
         if not check_dag_exists(self.module_dag, self.temp_repo) and self.get_vlm_response:
@@ -98,7 +100,7 @@ class RepoAgent: # Pure Text-Based
     
     def visualize_file(self):
         name = self.temp_repo.split("/")[-1]
-        return visualize_dag(self.file_dag, name=name)
+        return visualize_dag(self.file_dag, name=name, output_dir=self.sandbox_dir)
     
     def show_files(self):
         python_file_names = get_python_files(self.temp_repo)
@@ -136,7 +138,7 @@ class RepoAgent: # Pure Text-Based
     def visualize_module(self, module_name_or_number: str, cap_node_number: int = 40, depth: int = 6):
         dag = self.get_module_dag(module_name_or_number, cap_node_number=cap_node_number, depth=depth)
         name = self.temp_repo.split("/")[-1] + "_" + dag[list(dag.keys())[0]]['name']
-        return visualize_dag(dag, cap_node_number = cap_node_number, name=name)
+        return visualize_dag(dag, cap_node_number = cap_node_number, name=name, output_dir=self.sandbox_dir)
     
     def animate_module(self, module_name_or_number: str, frame_count: int = 50, fps: int = 10, cap_node_number: int = 40, depth: int = 6):
         dag = self.get_module_dag(module_name_or_number, cap_node_number=cap_node_number, depth=depth)
@@ -165,10 +167,15 @@ class RepoAgent: # Pure Text-Based
         interpreter = CodeInterpreter()
         return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
     
-    
-    def generate_podcast(self):
-        raise NotImplementedError("Podcast generation not implemented yet")
-    
+    def generate_podcast(self, module_name_or_number: Optional[str] = None):
+        raw_script = write_podcast_script(prompt=self._to_prompt(module_name_or_number))
+        script = parse_script(raw_script)
+        if not module_name_or_number:
+            name = self.temp_repo.split("/")[-1]
+        else:
+            name = self.temp_repo.split("/")[-1] + "_" + module_name_or_number.split("/")[-1].replace(".py", "")
+        generate_podcast_audio(script, name=name, output_dir=self.sandbox_dir)
+        
     
     def _to_prompt(self, module_name_or_number: Optional[str]=None):
         if not module_name_or_number:
