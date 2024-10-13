@@ -1,6 +1,4 @@
-# repo-viewer: Watch, Listen, and Explore any Codebase
-
-Dive into any codebase like never before with repo-viewer.
+# Repo-Viewer: Watch, Listen, and Explore any Codebase
 
 <div align="center">
   <img src="sandbox/RepoViewer.gif" width="1200" alt="RepoViewer">
