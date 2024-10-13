@@ -775,7 +775,7 @@ def create_gif_from_dag(dag: dict,
                         output_name: str = "evolve_graph"):
     
     static_portion = static_seconds * fps / frame_count 
-    img, output_file = create_evolution_gif(dag, frame_count=frame_count, cap_node_number=cap_node_number, output_dir=output_dir, output_file=f"{output_name}.gif", fps=fps, static_portion=static_portion)
+    img, output_file = create_evolution_gif(dag, frame_count=frame_count, cap_node_number=cap_node_number, tmp_dir=output_dir, output_file=f"{output_name}.gif", fps=fps, static_portion=static_portion)
     
     return output_file
 

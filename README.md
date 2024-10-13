@@ -1,6 +1,10 @@
 # repo-viewer: Watch, Listen, and Explore any Codebase
 
-Dive into any codebase like never before with repo-viewer!
+Dive into any codebase like never before with repo-viewer.
+
+<div align="center">
+  <img src="sandbox/RepoViewer.gif" width="1200" alt="RepoViewer">
+</div>
 
 ## 🚀 Features
 
@@ -18,7 +22,7 @@ agent = RAgent(temp_repo) # temp_repo is local codebase path
 Watch your repository come to life with dynamic animations of its file structure:
 
 <div align="center">
-  <img src="anime_entropix.gif" width="1200" alt="Entropix Codebase Animation">
+  <img src="sandbox/anime_entropix.gif" width="1200" alt="Entropix Codebase Animation">
 </div>
 
 ```python
@@ -30,7 +34,7 @@ agent.animate_file(frame_count=50, fps=10)  # Create dynamic animation
 Zoom in on individual functions, classes, or files with detailed visualizations:
 
 <div align="center">
-  <img src="anime_entropix_stats.gif" width="1200" alt="Entropix Module Animation">
+  <img src="sandbox/anime_entropix_stats.gif" width="1200" alt="Entropix Module Animation">
 </div>
 
 ```python
