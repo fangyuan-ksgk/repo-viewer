@@ -75,9 +75,10 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False):
     
 class RepoAgent: # Pure Text-Based 
     
-    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None, sandbox_dir = "sandbox"):
+    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None, sandbox_dir = "sandbox", get_llm_response: Optional[Callable] = None):
         self.temp_repo = temp_repo
         self.get_vlm_response = get_vlm_response
+        self.get_llm_response = get_llm_response
         self.sandbox_dir = sandbox_dir
         file_dag = directory_to_file_dag(temp_repo)
         file_dag = assign_importance_score_to_dag(file_dag)
@@ -107,7 +108,7 @@ class RepoAgent: # Pure Text-Based
         present_str = f"Python Files in repo: {self.temp_repo}"
         for i, file_name in enumerate(python_file_names, 1):
             present_str += f"\n{i}. {file_name}"
-        print(present_str)
+        return present_str
     
     @property
     def python_files_dict(self): # useful for agent prompting
@@ -151,9 +152,8 @@ class RepoAgent: # Pure Text-Based
         output_file = create_gif_from_dag(self.file_dag, output_name = f"anime_{name}", fps=fps, frame_count=frame_count)
         print("GIF file saved in path: ", output_file)
         
-    @property 
-    def module_graph(self):
-        png_module_graph_path = self.visualize_module()
+    def module_graph(self, module_name_or_number: str):
+        png_module_graph_path = self.visualize_module(module_name_or_number)
         return file_to_preprocessed_img(png_module_graph_path)
     
     @property 
@@ -161,12 +161,12 @@ class RepoAgent: # Pure Text-Based
         png_file_graph_path = self.visualize_file()
         return file_to_preprocessed_img(png_file_graph_path)
     
-    def _respond(self, question: str):
-        if not self.get_vlm_response:
-            raise ValueError("Get VLM response function not provided yet")
-        interpreter = CodeInterpreter()
-        return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
-    
+    # def _respond(self, question: str):
+    #     if not self.get_vlm_response:
+    #         raise ValueError("Get VLM response function not provided yet")
+    #     interpreter = CodeInterpreter()
+    #     return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
+        
     def generate_podcast(self, module_name_or_number: Optional[str] = None):
         raw_script = write_podcast_script(prompt=self._to_prompt(module_name_or_number))
         script = parse_script(raw_script)
@@ -183,3 +183,102 @@ class RepoAgent: # Pure Text-Based
         else:
             prompt = dag_to_prompt(self.get_module_dag(module_name_or_number), no_file_content=True)
         return prompt
+   
+   
+def parse_tool_response(response):
+    try:
+        # Try to parse the entire JSON object
+        tool_data = json.loads(response)
+        return tool_data
+    except json.JSONDecodeError:
+        # Fallback to regex if JSON parsing fails
+        match = re.search(r'({[^}]+})', response)
+        if match:
+            try:
+                # Try to parse the matched JSON string
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
+def parse_tool_response(response):
+    try:
+        # Try to parse the entire JSON object
+        tool_data = json.loads(response)
+        return tool_data
+    except json.JSONDecodeError:
+        # Fallback to regex if JSON parsing fails
+        match = re.search(r'({[^}]+})', response)
+        if match:
+            try:
+                # Try to parse the matched JSON string
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+    return None
+    
+    
+class RAgent(RepoAgent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.message_history = []
+        self.img_prompt = self.file_graph
+        self.default_system_prompt = "You are RepoViewer, an Smart assistant that can answer questions about the code repository. Available files within the repository: " + self.show_files()
+    
+    def add_message(self, role: str, content: str):
+        self.message_history.append({"role": role, "content": content})
+    
+    def get_message_history(self):
+        return self.message_history
+    
+    def clear_message_history(self):
+        self.message_history = []
+        
+    @property 
+    def tool_prompt(self):
+        return """You are an AI assistant capable of analyzing and explaining code repositories. You have access to the following tools:
+
+1. answer_with_context(file_name_or_number: str = ""): Provide a detailed explanation of the entire repository or a specific file.
+2. visualize_repo(): Generate a visualization of the entire repository structure.
+3. visualize_module(module_name_or_number: str): Generate a visualization of a specific module or file.
+4. generate_podcast(module_name_or_number: Optional[str] = None): Generate a podcast script about the entire repository or a specific module.
+
+To use a tool, respond with a JSON object containing the tool name and any required parameters. For example:
+{"tool": "answer_with_context", "file_name_or_number": "main.py"} # use specific file name
+{"tool": "answer_with_context"} # use general repository information to answer the question
+{"tool": "answer_with_context", "file_name_or_number": "full"} # use full repository information to answer the question
+{"tool": "generate_podcast"} # generate podcast about the repository 
+{"tool": "visualize_module", "module_name_or_number": "main.py"} # visualize a specific module
+Analyze the user's question and choose the most appropriate tool to answer it."""
+
+    def update_system_prompt_from_tool_response(self, tool_response: str):
+        
+        tool_call = parse_tool_response(tool_response)
+        if tool_call["tool"] == "visualize_repo":
+            return f"Analyze the repository visualization and answer the query.", self.img_prompt
+        elif tool_call["tool"] == "answer_with_context":
+            if "file_name_or_number" not in tool_call:
+                return f"Full context of the repository: {self._to_prompt()}", None 
+            else:
+                return f"Full context of the file: {self._to_prompt(tool_call['file_name_or_number'])}", None     
+        elif tool_call["tool"] == "visualize_module":
+            return f"Analyze the module visualization and answer the query.", self.module_graph(tool_call["module_name_or_number"])
+        elif tool_call["tool"] == "generate_podcast":
+            self.generate_podcast()
+            return "Tell the user that podcast is being generated.", None
+        else:
+            return self.default_system_prompt
+        
+    def _get_tool_call(self, user_input: str):
+        # Parse the user input to determine the appropriate response
+        self.add_message("user", user_input)
+        tool_response = self.get_llm_response(self.get_message_history(), system_prompt=self.tool_prompt)
+        return tool_response
+    
+    def respond(self, user_input: str):
+        tool_response = self._get_tool_call(user_input)
+        system_prompt, img_prompt = self.update_system_prompt_from_tool_response(tool_response)
+        response = self.get_llm_response(self.get_message_history(), system_prompt=system_prompt, img=img_prompt)
+        self.add_message("assistant", response)
+        return response
