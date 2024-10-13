@@ -33,7 +33,7 @@ def strategic_respond(json_file_path: str,
     
     return final_response
 
-def dag_to_prompt(dag: dict, no_file_content: bool = False):
+def dag_to_prompt(dag: dict, no_file_content: bool = False, is_repo: bool = True):
     """
     Convert a dependency graph (DAG) to a prompt for analysis, including file contents.
     
@@ -44,7 +44,10 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False):
     Returns:
     str: A prompt for analyzing the codebase structure and contents.
     """
-    prompt = "Analyze the following codebase structure, dependencies, and file contents:\n\n"
+    if is_repo:
+        prompt = f"Analyze the following codebase structure, dependencies, and file contents of Repository {temp_repo}:\n\n"
+    else:
+        prompt = "\n"
     
     # Add information about nodes (files) and their contents
     for node, data in dag.items():
@@ -61,14 +64,21 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False):
         
         prompt += "\n" + "-"*50 + "\n\n"
     
-    prompt += "Instructions for analysis:\n"
-    prompt += "1. Examine each file's content and its role in the project.\n"
-    prompt += "2. Analyze the dependencies between files to understand the code flow.\n"
-    prompt += "3. Identify any central or frequently depended-upon files that might be core to the project.\n"
-    prompt += "4. Look for patterns in the file naming and organization that might indicate the project's architecture.\n"
-    prompt += "5. Based on the file contents and dependencies, determine the main functionality of the project.\n"
-    prompt += "6. Suggest any potential areas for improvement in the code organization or dependency structure.\n"
-    prompt += "7. Provide a summary of your findings, including the project's purpose and key features.\n"
+    if is_repo:
+        prompt += "Instructions for analysis:\n"
+        prompt += "1. Examine each file's content and its role in the project.\n"
+        prompt += "2. Analyze the dependencies between files to understand the code flow.\n"
+        prompt += "3. Identify any central or frequently depended-upon files that might be core to the project.\n"
+        prompt += "4. Look for patterns in the file naming and organization that might indicate the project's architecture.\n"
+        prompt += "5. Based on the file contents and dependencies, determine the main functionality of the project.\n"
+        prompt += "6. Suggest any potential areas for improvement in the code organization or dependency structure.\n"
+        prompt += "7. Provide a summary of your findings, including the project's purpose and key features.\n"
+    else:
+        prompt += "Instructions for analysis:\n"
+        prompt += "1. Examine each module's content and its role in the file.\n"
+        prompt += "2. Analyze the dependencies between modules to understand the code flow.\n"
+        prompt += "3. Identify any central or frequently depended-upon modules that might be core to the file.\n"
+        prompt += "4. Look for patterns in the module naming and organization that might indicate the file's architecture."
 
     return prompt
     
@@ -177,11 +187,11 @@ class RepoAgent: # Pure Text-Based
         generate_podcast_audio(script, name=name, output_dir=self.sandbox_dir)
         
     
-    def _to_prompt(self, module_name_or_number: Optional[str]=None):
+    def _to_prompt(self, module_name_or_number: Optional[str]=None, is_repo: bool = True):
         if not module_name_or_number:
-            prompt = dag_to_prompt(self.file_dag)        
+            prompt = dag_to_prompt(self.file_dag, is_repo=is_repo)        
         else:
-            prompt = dag_to_prompt(self.get_module_dag(module_name_or_number), no_file_content=True)
+            prompt = dag_to_prompt(self.get_module_dag(module_name_or_number), no_file_content=True, is_repo=is_repo)
         return prompt
    
    
@@ -223,7 +233,6 @@ class RAgent(RepoAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.message_history = []
-        self.img_prompt = self.file_graph
         self.default_system_prompt = "You are RepoViewer, an Smart assistant that can answer questions about the code repository. Available files within the repository: " + self.show_files()
     
     def add_message(self, role: str, content: str):
@@ -250,19 +259,19 @@ To use a tool, respond with a JSON object containing the tool name and any requi
 {"tool": "answer_with_context", "file_name_or_number": "full"} # use full repository information to answer the question
 {"tool": "generate_podcast"} # generate podcast about the repository 
 {"tool": "visualize_module", "module_name_or_number": "main.py"} # visualize a specific module
-Analyze the user's question and choose the most appropriate tool to answer it."""
+Analyze the user's question and choose the most appropriate tool to answer it. Note that user might not provide the correct file name, you need to correct the file name. Available files: """ + self.show_files()
 
-    def update_system_prompt_from_tool_response(self, tool_response: str):
+    def update_system_prompt_from_tool_response(self, tool_call: dict):
         
-        tool_call = parse_tool_response(tool_response)
         if tool_call["tool"] == "visualize_repo":
-            return f"Analyze the repository visualization and answer the query.", self.img_prompt
+            return f"Analyze the repository visualization and answer the query.", self.file_graph
         elif tool_call["tool"] == "answer_with_context":
             if "file_name_or_number" not in tool_call:
-                return f"Full context of the repository: {self._to_prompt()}", None 
+                return f"Full context of the Repository {self.temp_repo}: {self._to_prompt()}", None 
             else:
-                return f"Full context of the file: {self._to_prompt(tool_call['file_name_or_number'])}", None     
+                return f"Full context of the file {tool_call['file_name_or_number']}: {self._to_prompt(tool_call['file_name_or_number'], is_repo=False)}", None     
         elif tool_call["tool"] == "visualize_module":
+            self.visualize_module(tool_call["module_name_or_number"])
             return f"Analyze the module visualization and answer the query.", self.module_graph(tool_call["module_name_or_number"])
         elif tool_call["tool"] == "generate_podcast":
             self.generate_podcast()
@@ -274,10 +283,25 @@ Analyze the user's question and choose the most appropriate tool to answer it.""
         # Parse the user input to determine the appropriate response
         self.add_message("user", user_input)
         tool_response = self.get_llm_response(self.get_message_history(), system_prompt=self.tool_prompt)
-        return tool_response
+        tool_call = parse_tool_response(tool_response)
+        return tool_call
     
+    def get_tool_call(self, user_input: str):
+        tool_call = {}
+        max_tries = 3
+        for _ in range(max_tries):
+            try:
+                tool_call = self._get_tool_call(user_input)
+                if tool_call:
+                    break
+            except Exception as e:
+                print(f"Error getting tool call: {e}")
+        if not tool_call:
+            raise ValueError("Failed to get a valid tool call after maximum attempts")
+        return tool_call
+      
     def respond(self, user_input: str):
-        tool_response = self._get_tool_call(user_input)
+        tool_response = self.get_tool_call(user_input)
         system_prompt, img_prompt = self.update_system_prompt_from_tool_response(tool_response)
         response = self.get_llm_response(self.get_message_history(), system_prompt=system_prompt, img=img_prompt)
         self.add_message("assistant", response)
