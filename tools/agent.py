@@ -294,8 +294,8 @@ Analyze the user's question and choose the most appropriate tool to answer it. N
                     break
             except Exception as e:
                 print(f"Error getting tool call: {e}")
-        if not tool_call:
-            raise ValueError("Failed to get a valid tool call after maximum attempts")
+        if not tool_call: # Default empty dictionary for funny query
+            return {}
         return tool_call
       
     def respond(self, user_input: str):
