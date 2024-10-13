@@ -57,3 +57,6 @@ Get started with the Streamlit app:
 ```bash
 streamlit run app.py
 ```
+
+## Contribution
+Interested in collaborating to make it even better? Let's connect! 🌟💻🔍
