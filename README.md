@@ -4,16 +4,17 @@ Dive into any codebase like never before with repo-viewer!
 
 ## 🚀 Features
 
+Initialize RepoAgent from any github repo, or your local codebase.
 ```python
 from tools.agent import *
 
-repo_url = "https://github.com/xjdr-alt/entropix.git" # Github repo url
-temp_repo = decide_temp_repo(repo_url) # Local codebase path
+repo_url = "https://github.com/xjdr-alt/entropix.git"
+temp_repo = decide_temp_repo(repo_url)
 clone_repo(repo_url, temp_repo)
-agent = RAgent(temp_repo) 
+agent = RAgent(temp_repo) # temp_repo is local codebase path
 ```
 
-### 1. Visualize Your Codebase
+### 1. 🎬 Visualize Your Codebase
 Watch your repository come to life with dynamic animations of its file structure:
 
 <div align="center">
@@ -21,12 +22,11 @@ Watch your repository come to life with dynamic animations of its file structure
 </div>
 
 ```python
-agent.visualize_file() # Visualize file structure
-
-agent.animate_file(frame_count=50, fps=10) # Animate file structure
+agent.visualize_file()  # Generate static visualization
+agent.animate_file(frame_count=50, fps=10)  # Create dynamic animation
 ```
 
-### 2. Explore Specific Modules
+### 2. 🔍 Explore Specific Modules
 Zoom in on individual functions, classes, or files with detailed visualizations:
 
 <div align="center">
@@ -34,19 +34,17 @@ Zoom in on individual functions, classes, or files with detailed visualizations:
 </div>
 
 ```python
-agent.animate_module(file_name_or_number, frame_count=50, fps=10, cap_node_number=10, depth=3) # Animate Module Dependency
-
-agent.visualize_module(file_name_or_number, cap_node_number=10, depth=3) # Visualize Module Dependency
+agent.animate_module(file_name_or_number, frame_count=50, fps=10, cap_node_number=10, depth=3)
+agent.visualize_module(file_name_or_number, cap_node_number=10, depth=3)
 ```
 
-
-### 3. Listen to Your Codebase
+### 3. 🎧 Listen to Your Codebase
 Turn your repository into a podcast and listen to its structure and key components:
 
-[🎧 Listen to the codebase podcast](sandbox/podcast_entropix.mp3)
+[Listen to the codebase podcast](sandbox/podcast_entropix.mp3)
 
 ```python
-agent.generate_podcast() # Generate Podcast
+agent.generate_podcast()
 ```
 
 ## 🖥️ RepoAgent Question-Answer Interface
