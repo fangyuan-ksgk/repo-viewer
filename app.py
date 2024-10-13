@@ -1,40 +1,73 @@
+import streamlit as st
 from tools.repo import *
-from tools.agent import RepoAgent, clone_repo
-import gradio as gr
+from tools.agent import RAgent, clone_repo
+import os
+
+st.set_page_config(page_title="RepoViewer", layout="wide")
+
+# Initialize session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'agent' not in st.session_state:
+    st.session_state.agent = None
+
+# Sidebar for repository input and analysis functions
+st.sidebar.title("RepoViewer")
+repo_url = st.sidebar.text_input("GitHub Repository URL", "https://github.com/xjdr-alt/entropix.git")
+
+if st.sidebar.button("Analyze Repository"):
+    with st.spinner("Cloning and analyzing repository..."):
+        temp_repo = decide_temp_repo(repo_url)
+        clone_repo(repo_url, temp_repo)
+        st.session_state.agent = RAgent(temp_repo)
+    st.sidebar.success("Repository analyzed successfully!")
+
+# Visualization functions in sidebar
+if st.session_state.agent:
+    st.sidebar.header("Visualizations")
+    
+    if st.sidebar.button("File Dependency Visualization"):
+        with st.spinner("Generating file dependency visualization..."):
+            static_viz = st.session_state.agent.visualize_file()
+            st.image(static_viz, caption="Static File Dependency Visualization", use_column_width=True)
+
+    st.sidebar.subheader("Module Dependency Visualization")
+    file_list = st.session_state.agent.get_file_list()
+    selected_file = st.sidebar.selectbox("Select a file to visualize", file_list)
+    if selected_file and st.sidebar.button("Generate Module Visualization"):
+        with st.spinner("Generating module dependency visualization..."):
+            module_viz = st.session_state.agent.visualize_module(selected_file, cap_node_number=10, depth=3)
+            st.image(module_viz, caption=f"Module Dependency for {selected_file}", use_column_width=True)
+
+    # Podcast Generation
+    if st.sidebar.button("Generate Repository Podcast"):
+        with st.spinner("Generating podcast..."):
+            podcast_path = st.session_state.agent.generate_podcast()
+        st.audio(podcast_path)
 
 
-def analyze_repo(repo_url):
-    temp_repo = decide_temp_repo(repo_url)
-    clone_repo(repo_url, temp_repo)
-    agent = RepoAgent(temp_repo)
-    
-    # Visualize file dependency
-    file_dep_img = agent.visualize_file(cap_node_number=25)
-    
-    # Visualize module dependency for the first Python file
-    python_files = [f for f in agent.files if f.endswith('.py')]
-    if python_files:
-        module_dep_img = agent.visualize_module(python_files[0], cap_node_number=10, depth=3)
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Chat input at the bottom
+if prompt := st.chat_input("Chat with RepoAgent about the repository..."):
+    if not st.session_state.agent:
+        st.error("Please analyze a repository first!")
     else:
-        module_dep_img = None
-    
-    # Generate podcast
-    podcast = agent.generate_podcast()
-    
-    return file_dep_img, module_dep_img, podcast
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-# Create Gradio interface
-iface = gr.Interface(
-    fn=analyze_repo,
-    inputs=gr.Textbox(label="GitHub Repository URL"),
-    outputs=[
-        gr.Image(label="File Dependency Graph"),
-        gr.Image(label="Module Dependency Graph"),
-        gr.Audio(label="Generated Podcast")
-    ],
-    title="GitHub Repository Analyzer",
-    description="Enter a GitHub repository URL to analyze its structure and generate a podcast."
-)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                response = st.session_state.agent.respond(prompt)
+            st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
-# Launch the interface
-iface.launch()
+# Cleanup button (moved to the bottom of the sidebar)
+if st.sidebar.button("Cleanup Temporary Files"):
+    with st.spinner("Cleaning up..."):
+        # Add cleanup logic here (e.g., removing temp directories)
+        st.success("Cleanup completed!")

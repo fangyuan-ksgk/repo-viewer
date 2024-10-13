@@ -3,6 +3,7 @@ from typing import Callable
 from tqdm import tqdm 
 from .repo import *
 from .podcast import *
+from .llm import get_openai_response
 
 def strategic_respond(json_file_path: str, 
                       img_base64: str,
@@ -45,7 +46,7 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False, is_repo: bool = True
     str: A prompt for analyzing the codebase structure and contents.
     """
     if is_repo:
-        prompt = f"Analyze the following codebase structure, dependencies, and file contents of Repository {temp_repo}:\n\n"
+        prompt = f"Analyze the following codebase structure, dependencies, and file contents of the repository:\n\n"
     else:
         prompt = "\n"
     
@@ -85,7 +86,7 @@ def dag_to_prompt(dag: dict, no_file_content: bool = False, is_repo: bool = True
     
 class RepoAgent: # Pure Text-Based 
     
-    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None, sandbox_dir = "sandbox", get_llm_response: Optional[Callable] = None):
+    def __init__(self, temp_repo: str, get_vlm_response: Optional[Callable] = None, sandbox_dir = "sandbox", get_llm_response: Optional[Callable] = get_openai_response):
         self.temp_repo = temp_repo
         self.get_vlm_response = get_vlm_response
         self.get_llm_response = get_llm_response
@@ -119,6 +120,9 @@ class RepoAgent: # Pure Text-Based
         for i, file_name in enumerate(python_file_names, 1):
             present_str += f"\n{i}. {file_name}"
         return present_str
+     
+    def get_file_list(self):
+        return get_python_files(self.temp_repo)
     
     @property
     def python_files_dict(self): # useful for agent prompting
@@ -171,12 +175,6 @@ class RepoAgent: # Pure Text-Based
         png_file_graph_path = self.visualize_file()
         return file_to_preprocessed_img(png_file_graph_path)
     
-    # def _respond(self, question: str):
-    #     if not self.get_vlm_response:
-    #         raise ValueError("Get VLM response function not provided yet")
-    #     interpreter = CodeInterpreter()
-    #     return strategic_respond(self.module_dag_path, self.module_graph, question, self.module_dag, interpreter, self.get_vlm_response) # Module DAG contains File DAG
-        
     def generate_podcast(self, module_name_or_number: Optional[str] = None):
         raw_script = write_podcast_script(prompt=self._to_prompt(module_name_or_number))
         script = parse_script(raw_script)
@@ -184,7 +182,7 @@ class RepoAgent: # Pure Text-Based
             name = self.temp_repo.split("/")[-1]
         else:
             name = self.temp_repo.split("/")[-1] + "_" + module_name_or_number.split("/")[-1].replace(".py", "")
-        generate_podcast_audio(script, name=name, output_dir=self.sandbox_dir)
+        return generate_podcast_audio(script, name=name, output_dir=self.sandbox_dir)
         
     
     def _to_prompt(self, module_name_or_number: Optional[str]=None, is_repo: bool = True):

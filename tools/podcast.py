@@ -26,8 +26,8 @@ def write_podcast_script(txt_file: Optional[str] = None, prompt: Optional[str] =
     
     return raw_podcast_script
 
-match_a_pattern = ["Host A: Steve Jobs:", "**Host A: Steve Jobs:**", "**Steve Jobs (Host A)**:", "**Steve Jobs:**", "**Steve Jobs**:", "**Steve Jobs**", "Steve Jobs:", "Host A:", "**Host A:**", "**Host A**:"]
-match_b_pattern = ["Host B: Elon Musk:", "**Host B: Elon Musk:**", "**Elon Musk (Host B)**:", "**Elon Musk:**", "**Elon Musk**:", "**Elon Musk**", "Elon Musk:", "Host B:", "**Host B:**", "**Host B**:"]
+match_a_pattern = ["**Host A (Steve Jobs):**", "**Steve:**", "**Steve Jobs (Host A):**", "**Steve Jobs (Host A):**", "Host A: Steve Jobs:", "**Host A: Steve Jobs:**", "**Steve Jobs (Host A)**:", "**Steve Jobs:**", "**Steve Jobs**:", "**Steve Jobs**", "Steve Jobs:", "Host A:", "**Host A:**", "**Host A**:"]
+match_b_pattern = ["**Host B (Elon Musk):**", "**Elon:**", "**Elon Musk (Host B):**", "**Elon Musk (Host B):**", "Host B: Elon Musk:", "**Host B: Elon Musk:**", "**Elon Musk (Host B)**:", "**Elon Musk:**", "**Elon Musk**:", "**Elon Musk**", "Elon Musk:", "Host B:", "**Host B:**", "**Host B**:"]
 
 def get_line_content(line, pattern):
     content = line.split(pattern)[-1].split(":")[-1].strip()
@@ -93,3 +93,5 @@ def generate_podcast_audio(parsed_podcast: dict, name: str, output_dir: str):
     # Clean up temporary files
     for file in audio_files:
         os.remove(file)
+        
+    return output_file
