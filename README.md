@@ -4,6 +4,14 @@
   <img src="sandbox/RepoViewer.gif" width="1200" alt="RepoViewer">
 </div>
 
+## Set-up
+
+Invlude your OpenAI and Anthropic API keys in the set.sh script
+
+```bash
+bash set.sh
+```
+
 ## 🚀 Features
 
 Initialize RepoAgent from any github repo, or your local codebase.
